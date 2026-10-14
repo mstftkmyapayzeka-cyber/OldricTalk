@@ -1,16 +1,13 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MonitorUp, PhoneOff, Signal, Video, VideoOff, X } from 'lucide-react'
-import { clearVoiceError, leaveVoice, stopScreenShare, toggleCamera, useVoice } from '@/lib/voice'
+import { PhoneOff, Signal, X } from 'lucide-react'
+import { clearVoiceError, leaveVoice, useVoice } from '@/lib/voice'
 import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/tooltip'
-import ScreenPicker from './ScreenPicker'
 
 /** Kenar çubuğunun altında "Ses Bağlandı" paneli (Discord'daki gibi). */
 export default function VoicePanel(): React.JSX.Element | null {
   const v = useVoice()
   const navigate = useNavigate()
-  const [picking, setPicking] = useState(false)
 
   if (v.status === 'idle') {
     if (!v.error) return null
@@ -56,31 +53,6 @@ export default function VoicePanel(): React.JSX.Element | null {
         </Tooltip>
       </div>
       {v.error && <p className="px-1 pt-1 text-xs text-idle">{v.error}</p>}
-      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-        <button
-          onClick={() => void toggleCamera()}
-          disabled={v.status !== 'connected'}
-          aria-label={v.camera ? 'Kamerayı Kapat' : 'Kamerayı Aç'}
-          className={cn(
-            'flex h-8 items-center justify-center gap-1.5 rounded-md text-sm disabled:opacity-50',
-            v.camera ? 'bg-online text-white' : 'bg-sidebar text-foreground hover:bg-hover'
-          )}
-        >
-          {v.camera ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />} Kamera
-        </button>
-        <button
-          onClick={() => (v.screen ? void stopScreenShare() : setPicking(true))}
-          disabled={v.status !== 'connected'}
-          aria-label={v.screen ? 'Paylaşımı Durdur' : 'Ekran Paylaş'}
-          className={cn(
-            'flex h-8 items-center justify-center gap-1.5 rounded-md text-sm disabled:opacity-50',
-            v.screen ? 'bg-online text-white' : 'bg-sidebar text-foreground hover:bg-hover'
-          )}
-        >
-          <MonitorUp className="h-4 w-4" /> {v.screen ? 'Durdur' : 'Ekran'}
-        </button>
-      </div>
-      {picking && <ScreenPicker onClose={() => setPicking(false)} />}
     </div>
   )
 }

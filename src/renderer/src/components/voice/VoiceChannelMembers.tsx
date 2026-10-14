@@ -1,4 +1,4 @@
-import { HeadphoneOff, MicOff, MonitorUp, Video } from 'lucide-react'
+import { HeadphoneOff, MicOff } from 'lucide-react'
 import { useVoice } from '@/lib/voice'
 import { cn } from '@/lib/utils'
 import { useChannelVoiceMembers } from '@/stores/voiceRoster'
@@ -29,11 +29,6 @@ export default function VoiceChannelMembers({
               <Avatar src={m.avatar_url} name={m.name} seed={m.user_id} size={22} />
             </span>
             <span className={cn('flex-1 truncate', talking && 'text-header')}>{m.name}</span>
-            {m.screen && (
-              <span className="rounded bg-dnd px-1 text-[10px] font-bold uppercase text-white">Canlı</span>
-            )}
-            {m.video && !m.screen && <Video className="h-3.5 w-3.5" />}
-            {m.screen && <MonitorUp className="h-3.5 w-3.5" />}
             {m.deafened ? (
               <HeadphoneOff className="h-3.5 w-3.5 text-dnd" />
             ) : (

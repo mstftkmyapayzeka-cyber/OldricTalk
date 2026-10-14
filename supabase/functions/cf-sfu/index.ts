@@ -6,7 +6,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const CF_API = 'https://rtc.live.cloudflare.com/v1'
-const LOCAL_TRACKS = /^(mic|camera|screen|screen-audio)$/
+// Uygulama yalnızca sestir: tek yayın adı "mic", görüntü taşıyan SDP reddedilir.
+const TRACK_NAME = 'mic'
+const VIDEO_LINE = /^m=video /m
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -139,7 +141,7 @@ Deno.serve(async (req) => {
       const tracks = (Array.isArray(body.tracks) ? body.tracks : []) as TrackIn[]
       if (tracks.length === 0 || tracks.length > 16) return json({ error: 'bad_request' }, 400)
       const remote = tracks[0].location === 'remote'
-      if (tracks.some((t) => (t.location === 'remote') !== remote)) {
+      if (tracks.some((t) => (t.location === 'remote') !== remote || String(t.trackName) !== TRACK_NAME)) {
         return json({ error: 'bad_request' }, 400)
       }
       if (remote) {
@@ -150,7 +152,7 @@ Deno.serve(async (req) => {
           .in('session_id', ids)
           .eq('channel_id', own.channel_id)
         if ((peers?.length ?? 0) !== ids.length) return json({ error: 'forbidden' }, 403)
-      } else if (tracks.some((t) => !LOCAL_TRACKS.test(String(t.trackName)) || !t.mid)) {
+      } else if (tracks.some((t) => !t.mid) || VIDEO_LINE.test(cleanSdp(body.sessionDescription)?.sdp ?? '')) {
         return json({ error: 'bad_request' }, 400)
       }
       return cf('POST', `/sessions/${sessionId}/tracks/new`, {
@@ -164,6 +166,7 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === 'renegotiate') {
+      if (VIDEO_LINE.test(cleanSdp(body.sessionDescription)?.sdp ?? '')) return json({ error: 'bad_request' }, 400)
       return cf('PUT', `/sessions/${sessionId}/renegotiate`, {
         sessionDescription: cleanSdp(body.sessionDescription)
       })

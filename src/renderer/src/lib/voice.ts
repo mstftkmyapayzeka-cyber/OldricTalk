@@ -1,4 +1,4 @@
-// Ses/görüntü motoru (Cloudflare Realtime SFU). Bağlantı sayfa değişimlerinde sürer
+// Ses motoru (Cloudflare Realtime SFU); yalnızca ses, kamera/ekran paylaşımı yok. Bağlantı sayfa değişimlerinde sürer
 // (Discord'daki gibi metin kanallarında gezinirken seste kalınır).
 //
 // Akış: katılınca bir SFU oturumu açılır, mikrofon "mic" adıyla yayınlanır ve oturum
@@ -22,14 +22,9 @@ type VoiceState = {
   error: string | null
   muted: boolean
   deafened: boolean
-  camera: boolean
-  screen: boolean
   /** Şu an konuşanların kullanıcı kimlikleri (bağlı olunan kanalda). */
   speaking: string[]
 }
-
-/** Gösterilecek görüntü akışları: kullanıcı id → kamera / ekran. Kendi önizlememiz dahil. */
-export type VideoStreams = Record<string, { camera?: MediaStream; screen?: MediaStream }>
 
 const PREFS_KEY = 'oldrictalk-voice-prefs'
 
@@ -48,13 +43,10 @@ const IDLE = {
   channelId: null,
   channelName: null,
   serverName: null,
-  camera: false,
-  screen: false,
   speaking: [] as string[]
 }
 
 export const useVoice = create<VoiceState>(() => ({ ...IDLE, error: null, ...loadPrefs() }))
-export const useVideoStreams = create<VideoStreams>(() => ({}))
 
 // ---------------------------------------------------------------- iç durum
 let me: Pick<Profile, 'id' | 'display_name' | 'avatar_url'> | null = null
@@ -62,8 +54,7 @@ let session: SfuSession | null = null
 let attempt = 0
 let mutedBeforeDeafen = false
 
-type Local = { track: MediaStreamTrack; tx: RTCRtpTransceiver }
-const local: Partial<Record<'mic' | 'camera' | 'screen' | 'screen-audio', Local>> = {}
+let mic: { track: MediaStreamTrack; tx: RTCRtpTransceiver } | null = null
 
 type Remote = {
   key: string
@@ -101,10 +92,8 @@ function publishPresence(): void {
     avatar_url: me.avatar_url,
     muted: s.muted,
     deafened: s.deafened,
-    video: s.camera,
-    screen: s.screen,
     session_id: session.sessionId,
-    tracks: Object.keys(local)
+    tracks: mic ? ['mic'] : []
   })
 }
 
@@ -128,6 +117,7 @@ async function reconcile(): Promise<void> {
   for (const m of channelMembers()) {
     if (m.user_id === me.id || !m.session_id) continue
     for (const trackName of m.tracks ?? []) {
+      if (trackName !== 'mic') continue
       wanted.set(`${m.session_id}:${trackName}`, { sessionId: m.session_id, trackName, userId: m.user_id })
     }
   }
@@ -164,21 +154,14 @@ async function reconcile(): Promise<void> {
 function attachRemote(r: Remote, track: MediaStreamTrack): void {
   if (remotes.get(r.key) !== r) return
   r.track = track
-  if (track.kind === 'audio') {
-    const el = new Audio()
-    el.autoplay = true
-    el.srcObject = new MediaStream([track])
-    el.muted = useVoice.getState().deafened
-    void el.play().catch(() => undefined)
-    r.audio = el
-    if (r.trackName === 'mic') watchLevel(r.userId, el.srcObject as MediaStream)
-  } else {
-    const kind = r.trackName === 'screen' ? 'screen' : 'camera'
-    useVideoStreams.setState((s) => ({
-      ...s,
-      [r.userId]: { ...s[r.userId], [kind]: new MediaStream([track]) }
-    }))
-  }
+  if (track.kind !== 'audio') return
+  const el = new Audio()
+  el.autoplay = true
+  el.srcObject = new MediaStream([track])
+  el.muted = useVoice.getState().deafened
+  void el.play().catch(() => undefined)
+  r.audio = el
+  watchLevel(r.userId, el.srcObject as MediaStream)
 }
 
 function dropRemote(r: Remote): void {
@@ -187,15 +170,7 @@ function dropRemote(r: Remote): void {
     r.audio.srcObject = null
     r.audio.remove()
   }
-  if (r.trackName === 'mic') unwatchLevel(r.userId)
-  if (r.trackName === 'camera' || r.trackName === 'screen') {
-    const kind = r.trackName
-    useVideoStreams.setState((s) => {
-      const next = { ...s, [r.userId]: { ...s[r.userId] } }
-      delete next[r.userId][kind]
-      return next
-    })
-  }
+  unwatchLevel(r.userId)
 }
 
 // ---------------------------------------------------------------- konuşan algılama
@@ -237,32 +212,16 @@ function sampleLevels(): void {
   if (now.join() !== s.speaking.join()) useVoice.setState({ speaking: now })
 }
 
-// ---------------------------------------------------------------- yerel yayınlar
-async function publishLocal(
-  name: 'mic' | 'camera' | 'screen' | 'screen-audio',
-  track: MediaStreamTrack
-): Promise<void> {
-  if (!session) throw new Error('Bağlı değil.')
-  const tx = await session.publish(track, name)
-  local[name] = { track, tx }
-}
-
-async function unpublishLocal(name: 'mic' | 'camera' | 'screen' | 'screen-audio'): Promise<void> {
-  const l = local[name]
-  if (!l) return
-  delete local[name]
-  await session?.unpublish(l.tx).catch(() => undefined)
-  l.track.stop()
-}
-
+// ---------------------------------------------------------------- mikrofon
 async function startMic(): Promise<boolean> {
   try {
+    if (!session) throw new Error('Bağlı değil.')
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     })
     const track = stream.getAudioTracks()[0]
     track.enabled = !useVoice.getState().muted
-    await publishLocal('mic', track)
+    mic = { track, tx: await session.publish(track, 'mic') }
     if (me) watchLevel(me.id, stream)
     return true
   } catch {
@@ -303,7 +262,7 @@ export async function joinVoice(channel: Channel, serverName: string): Promise<v
     const micOk = await startMic()
     if (mine !== attempt) return
     if (!micOk) useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi; sessiz katıldın.' })
-    else if (deafened || muted) local.mic!.track.enabled = false
+    else if (deafened || muted) mic!.track.enabled = false
 
     // Mikrofon yoksa ilk bağlantı ilk çekmeyle kurulur.
     if (micOk) await sess.waitConnected()
@@ -329,11 +288,8 @@ export async function leaveVoice(cue = true): Promise<void> {
   if (reconcileTimer) clearTimeout(reconcileTimer)
   for (const r of [...remotes.values()]) dropRemote(r)
   for (const userId of [...meters.keys()]) unwatchLevel(userId)
-  for (const key of Object.keys(local) as (keyof typeof local)[]) {
-    local[key]?.track.stop()
-    delete local[key]
-  }
-  useVideoStreams.setState({}, true)
+  mic?.track.stop()
+  mic = null
   const sess = session
   session = null
   await sess?.close()
@@ -348,7 +304,7 @@ export async function toggleMute(): Promise<void> {
   savePrefs()
   playCue(muted ? 'mute' : 'unmute')
   if (s.status === 'connected') {
-    if (local.mic) local.mic.track.enabled = !muted
+    if (mic) mic.track.enabled = !muted
     else if (!muted && !(await startMic())) {
       useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi.' })
     }
@@ -369,60 +325,7 @@ export async function toggleDeafen(): Promise<void> {
   savePrefs()
   playCue(deafened ? 'mute' : 'unmute')
   setDeafenedAudio(deafened)
-  if (local.mic) local.mic.track.enabled = !muted
-  publishPresence()
-}
-
-export async function toggleCamera(): Promise<void> {
-  const s = useVoice.getState()
-  if (s.status !== 'connected' || !me) return
-  if (s.camera) {
-    await unpublishLocal('camera')
-    useVoice.setState({ camera: false })
-    useVideoStreams.setState((v) => ({ ...v, [me!.id]: { ...v[me!.id], camera: undefined } }))
-  } else {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
-      })
-      await publishLocal('camera', stream.getVideoTracks()[0])
-      useVoice.setState({ camera: true, error: null })
-      useVideoStreams.setState((v) => ({ ...v, [me!.id]: { ...v[me!.id], camera: stream } }))
-    } catch {
-      useVoice.setState({ error: 'Kameraya erişilemedi.' })
-    }
-  }
-  publishPresence()
-}
-
-/** Kaynak önceden window.oldric.selectScreen ile seçilmiş olmalı. */
-export async function startScreenShare(audio: boolean): Promise<void> {
-  if (useVoice.getState().status !== 'connected' || !me) return
-  try {
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 30 } },
-      audio
-    })
-    const video = stream.getVideoTracks()[0]
-    video.contentHint = 'detail'
-    video.addEventListener('ended', () => void stopScreenShare())
-    await publishLocal('screen', video)
-    const sound = stream.getAudioTracks()[0]
-    if (sound) await publishLocal('screen-audio', sound)
-    useVoice.setState({ screen: true, error: null })
-    useVideoStreams.setState((v) => ({ ...v, [me!.id]: { ...v[me!.id], screen: stream } }))
-  } catch {
-    useVoice.setState({ error: 'Ekran paylaşımı başlatılamadı.' })
-  }
-  publishPresence()
-}
-
-export async function stopScreenShare(): Promise<void> {
-  if (!local.screen && !local['screen-audio']) return
-  await unpublishLocal('screen')
-  await unpublishLocal('screen-audio')
-  useVoice.setState({ screen: false })
-  if (me) useVideoStreams.setState((v) => ({ ...v, [me!.id]: { ...v[me!.id], screen: undefined } }))
+  if (mic) mic.track.enabled = !muted
   publishPresence()
 }
 

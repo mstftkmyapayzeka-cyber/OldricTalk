@@ -8,8 +8,6 @@ export type VoiceMember = {
   avatar_url: string | null
   muted: boolean
   deafened: boolean
-  video: boolean
-  screen: boolean
   /** Cloudflare SFU oturumu ve yayınlanan akış adları (diğerleri bunları çeker). */
   session_id: string | null
   tracks: string[]

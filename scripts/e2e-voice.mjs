@@ -1,6 +1,6 @@
 // Ses senaryosu: iki hesap aynı sunucunun "Genel" ses kanalına bağlanır; kenar
-// çubuğunda birbirlerini görürler, sessize alma yansır, kamera açılınca görüntü
-// karşı tarafa ulaşır. Sahte medya cihazları kullanılır (OLDRIC_TEST_PROFILE).
+// çubuğunda birbirlerini görürler, sessize alma yansır, ses karşı tarafa ulaşır.
+// Sahte mikrofon kullanılır (OLDRIC_TEST_PROFILE).
 // Kullanım: npm run build && node scripts/e2e-voice.mjs [ekran-görüntüsü-klasörü]
 import { env, launch, login, shot, shotsDir, step, T } from './e2e-lib.mjs'
 
@@ -56,11 +56,13 @@ try {
     await a.win.locator('aside svg.lucide-mic-off').first().waitFor({ timeout: T })
   })
 
-  await step('Ayşe kamerasını açar; Mehmet görüntüyü alır', async () => {
-    await a.win.getByRole('button', { name: 'Kamerayı Aç' }).first().click()
-    await b.win.locator('main video').first().waitFor({ timeout: T })
-    await b.win.waitForTimeout(1500)
-    await shot(dir, b, 'ses-03-kamera.png')
+  await step('Ayşe\'nin sesi Mehmet\'e ulaşır (konuşma halkası); kamera/ekran düğmesi yok', async () => {
+    // Sahte mikrofon düzenli bip sesi üretir; SFU üzerinden gelince Ayşe'nin karosu yeşillenir.
+    await b.win.locator('main .ring-online').getByText('Ayşe (test)').waitFor({ timeout: T })
+    await shot(dir, b, 'ses-03-konusuyor.png')
+    for (const name of ['Kamerayı Aç', 'Ekran Paylaş']) {
+      if (await a.win.getByRole('button', { name }).count()) throw new Error(`"${name}" düğmesi hâlâ var`)
+    }
   })
 
   await step('Ayşe metin kanalına geçer, seste kalır', async () => {
