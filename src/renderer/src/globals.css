@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Katmanlar: rail (sunucu şeridi) < sidebar < chat; floating = menüler/modallar */
+    --rail: 228 7% 13%;
+    --sidebar: 225 6% 18%;
+    --chat: 228 6% 21%;
+    --floating: 220 8% 7%;
+    --hover: 228 6% 26%;
+    --selected: 228 6% 30%;
+    --input: 225 7% 25%;
+    --border: 225 6% 26%;
+
+    --text: 220 9% 87%;
+    --text-muted: 218 8% 61%;
+    --header: 220 13% 96%;
+
+    /* OldricTalk vurgusu: mor */
+    --brand: 255 82% 66%;
+    --brand-hover: 255 70% 60%;
+
+    --online: 142 65% 39%;
+    --idle: 38 86% 57%;
+    --dnd: 358 87% 60%;
+    --offline: 218 8% 50%;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-chat text-foreground font-sans antialiased;
+    font-size: 15px;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  /* Sohbet metni seçilebilir */
+  .selectable,
+  .selectable * {
+    user-select: text;
+  }
+
+  /* Pencere sürükleme alanı (titleBarStyle: hidden) */
+  .drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+
+  ::-webkit-scrollbar {
+    width: 14px;
+    height: 14px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-clip: padding-box;
+    border: 4px solid transparent;
+    border-radius: 8px;
+    background-color: hsl(var(--floating));
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .thin-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+  .thin-scroll::-webkit-scrollbar-thumb {
+    border-width: 2px;
+    background-color: transparent;
+  }
+  .thin-scroll:hover::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--floating));
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

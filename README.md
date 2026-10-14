@@ -1,52 +1,63 @@
-# Discord Uygulaması
+# OldricTalk
 
-Bu proje, Discord'un temel özelliklerini taklit eden veya benzer bir kullanıcı deneyimi sunan bir web sitesi veya uygulamadır. Kullanıcılar bu uygulamada metin ve sesli iletişim kurabilir, sunucular oluşturabilir ve arkadaş ekleyebilirler.
+Discord benzeri Windows masaüstü sohbet uygulaması: sunucular, metin ve ses kanalları,
+direkt mesajlar, arkadaşlık sistemi.
 
-## Özellikler
+- **Masaüstü:** Electron + Vite + React 19 + TypeScript + Tailwind
+- **Arka uç:** Supabase (kimlik doğrulama, Postgres + RLS, depolama, gerçek zamanlı yayın)
+- **Ses/görüntü:** LiveKit (yakında)
 
-- Kullanıcı kaydı oluşturma ve giriş yapma
-- Sunucu oluşturma ve sunuculara katılma
-- Metin ve sesli iletişim
-- Arkadaş ekleme ve arkadaşlık istekleri
-- Emoji desteği
-- Direkt mesajlaşma ve grup sohbetleri
+> Bu dal (`desktop`), `main` dalındaki Next.js web sürümünün yerini alır.
 
-## Kullanılan Teknolojiler
+## Geliştirme
 
-- Next.js
-- Zustand 
-- TypeScript 
-- Socket.io 
-- React Hook Form 
-- MongoDB 
-- Prisma 
-- Axios 
-- Tailwind CSS 
-- LiveKit for real-time audio/video 
-- Emoji Mart for emoji selection 
+Gereksinim: Node.js 22+.
 
-## Nasıl Kullanılır?
+```bash
+npm install
+npm run dev          # uygulamayı geliştirme modunda açar
+npm run typecheck    # tip denetimi
+npm test             # birim testleri
+npm run build        # out/ altına derler
+```
 
-1. Proje deposunu klonlayın:
+VS Code'un tümleşik terminalinde `ELECTRON_RUN_AS_NODE` tanımlıysa Electron açılmaz;
+`Remove-Item Env:ELECTRON_RUN_AS_NODE` ile kaldırın.
 
-    ```bash
-    https://github.com/ahmetpalavan/discord-app.git
-    ```
+### Uçtan uca test
 
-2. Proje klasörüne gidin:
+İki test hesabıyla iki uygulama penceresi açar; sunucu kurma, davet, gerçek zamanlı
+mesaj, yazıyor göstergesi, arkadaşlık ve DM akışını gerçek Supabase üzerinde dener.
+Hesap bilgileri git'e girmeyen `.env.test` dosyasından okunur.
 
-    ```bash
-    cd discord-app
-    ```
+```bash
+npm run build && node scripts/e2e.mjs out/shots
+```
 
-3. Gerekli paketleri yükleyin:
+## Mimari
 
-    ```bash
-    npm install
-    ```
+```
+src/main/        Electron ana süreç (pencere, güvenlik, görev çubuğu rozeti)
+src/preload/     Renderer'a açılan dar köprü (window.oldric)
+src/renderer/    React arayüzü
+  lib/           supabase istemcisi, gerçek zamanlı yönetici, biçimlendirme, yükleme
+  hooks/         veri sorguları (TanStack Query)
+  stores/        zustand durumları (oturum, modal, yazıyor, açık hedef)
+  components/    arayüz bileşenleri
+  pages/         ekranlar
+supabase/migrations/   veritabanı şeması, RLS, RPC'ler, yayın tetikleyicileri
+```
 
-4. Geliştirme sunucusunu başlatın:
+### Güvenlik modeli
 
-    ```bash
-    npm run dev
-    ```
+- Her tabloda RLS açık; istemci yalnızca izin verilen satırları görür/yazar.
+- Rol gerektiren işlemler (sunucu kurma, katılma, rol, atma/yasaklama, DM açma,
+  arkadaşlık) `security definer` RPC'lerden geçer; iç yardımcılar dışa kapalı
+  `private` şemasında.
+- Gerçek zamanlı iletim özel broadcast konularıyla yapılır: `server:<id>` yalnızca
+  üyelere, `user:<id>` yalnızca kişinin kendisine, `dm:<id>` katılımcılara.
+- Resim/dosya URL'leri yalnızca projenin kendi depolamasını gösterebilir (dış resimler
+  görüntüleyenin IP'sini sızdırır).
+- Mesaj hız sınırı: 5 saniyede 5 mesaj. Sunucu oluşturma 25, katılma 100 ile sınırlı.
+- Electron: `contextIsolation`, `sandbox`, `nodeIntegration: false`, paketli sürümde
+  CSP; bağlantılar sistem tarayıcısında açılır.

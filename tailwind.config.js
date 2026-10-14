@@ -1,76 +1,72 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: ["class"],
-  content: [
-    './pages/**/*.{ts,tsx}',
-    './components/**/*.{ts,tsx}',
-    './app/**/*.{ts,tsx}',
-    './src/**/*.{ts,tsx}',
-	],
+  darkMode: ['class'],
+  content: ['./src/renderer/index.html', './src/renderer/src/**/*.{ts,tsx}'],
   theme: {
-    container: {
-      center: true,
-      padding: "2rem",
-      screens: {
-        "2xl": "1400px",
-      },
-    },
     extend: {
+      fontFamily: {
+        sans: ['"Segoe UI Variable Text"', '"Segoe UI"', 'system-ui', 'sans-serif'],
+        mono: ['"Cascadia Code"', 'Consolas', 'monospace']
+      },
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        // Discord benzeri katmanlar; değerler globals.css'teki değişkenlerden.
+        rail: 'hsl(var(--rail))',
+        sidebar: 'hsl(var(--sidebar))',
+        chat: 'hsl(var(--chat))',
+        floating: 'hsl(var(--floating))',
+        hover: 'hsl(var(--hover))',
+        selected: 'hsl(var(--selected))',
+        input: 'hsl(var(--input))',
+        brand: {
+          DEFAULT: 'hsl(var(--brand))',
+          hover: 'hsl(var(--brand-hover))'
+        },
+        online: 'hsl(var(--online))',
+        idle: 'hsl(var(--idle))',
+        dnd: 'hsl(var(--dnd))',
+        offline: 'hsl(var(--offline))',
+        border: 'hsl(var(--border))',
+        ring: 'hsl(var(--brand))',
+        background: 'hsl(var(--chat))',
+        foreground: 'hsl(var(--text))',
+        header: 'hsl(var(--header))',
+        muted: {
+          DEFAULT: 'hsl(var(--hover))',
+          foreground: 'hsl(var(--text-muted))'
+        },
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: 'hsl(var(--brand))',
+          foreground: 'hsl(0 0% 100%)'
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+          DEFAULT: 'hsl(var(--selected))',
+          foreground: 'hsl(var(--text))'
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: 'hsl(var(--dnd))',
+          foreground: 'hsl(0 0% 100%)'
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: 'hsl(var(--hover))',
+          foreground: 'hsl(var(--header))'
         },
         popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
+          DEFAULT: 'hsl(var(--floating))',
+          foreground: 'hsl(var(--text))'
+        }
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: '8px',
+        md: '6px',
+        sm: '4px'
       },
       keyframes: {
-        "accordion-down": {
-          from: { height: 0 },
-          to: { height: "var(--radix-accordion-content-height)" },
-        },
-        "accordion-up": {
-          from: { height: "var(--radix-accordion-content-height)" },
-          to: { height: 0 },
-        },
+        'fade-in': { from: { opacity: 0 }, to: { opacity: 1 } }
       },
       animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
-      },
-    },
+        'fade-in': 'fade-in 0.15s ease-out'
+      }
+    }
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [require('tailwindcss-animate')]
 }
