@@ -4,6 +4,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { HEARTBEAT_MS } from '@/lib/presence'
 import { startRealtime, stopRealtime, syncServerTopics } from '@/lib/realtime'
+import { leaveVoice, room, setVoiceIdentity, useVoice } from '@/lib/voice'
+import { RoomAudioRenderer, RoomContext } from '@livekit/components-react'
 import { useMyProfile, useServers } from '@/hooks/queries'
 import { useUnread } from '@/hooks/useUnread'
 import { useUserId } from '@/stores/auth'
@@ -19,6 +21,7 @@ export default function AppShell(): React.JSX.Element {
   const profile = useMyProfile()
   const servers = useServers()
   const { dmUnread } = useUnread()
+  const deafened = useVoice((s) => s.deafened)
 
   // navigate her gezinmede yeni kimlik alır; bağlantıyı yeniden kurmasın diye ref'te tutulur.
   const navigateRef = useRef(navigate)
@@ -42,7 +45,13 @@ export default function AppShell(): React.JSX.Element {
     })
     beat()
     const t = setInterval(beat, HEARTBEAT_MS)
-    return () => clearInterval(t)
+    // Pencere kapanırken çevrimdışı olduğunu yay (en iyi çaba; istek bitmeyebilir).
+    const bye = (): void => void supabase.rpc('go_offline').then(() => undefined)
+    window.addEventListener('beforeunload', bye)
+    return () => {
+      clearInterval(t)
+      window.removeEventListener('beforeunload', bye)
+    }
   }, [])
 
   // Yazıyor göstergelerinin süresi dolanları temizlenir.
@@ -56,6 +65,14 @@ export default function AppShell(): React.JSX.Element {
       void Notification.requestPermission()
     }
   }, [])
+
+  // Ses varlığında görünen ad/avatar profil değişince güncellenir.
+  useEffect(() => {
+    if (profile.data) setVoiceIdentity(profile.data)
+  }, [profile.data])
+
+  // Oturum kapanınca sesten de çıkılır.
+  useEffect(() => () => void leaveVoice(false), [])
 
   // Görev çubuğu rozeti: okunmamış DM sayısı.
   useEffect(() => {
@@ -75,12 +92,15 @@ export default function AppShell(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full">
-      <ServerRail />
-      <div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-lg">
-        <Outlet />
+    <RoomContext.Provider value={room}>
+      <div className="flex h-full">
+        <ServerRail />
+        <div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-lg">
+          <Outlet />
+        </div>
+        <ModalHost />
       </div>
-      <ModalHost />
-    </div>
+      <RoomAudioRenderer muted={deafened} />
+    </RoomContext.Provider>
   )
 }

@@ -13,6 +13,7 @@ import type { Channel, ChatMessage, Conversation, Profile } from './types'
 import { qk } from '@/hooks/queries'
 import { useActiveTarget } from '@/stores/active'
 import { useTyping } from '@/stores/typing'
+import { useVoiceRoster, type VoiceMember } from '@/stores/voiceRoster'
 
 type Ctx = {
   qc: QueryClient
@@ -103,6 +104,22 @@ function onServerEvent(serverId: string, event: string, payload: unknown): void 
     case 'typing':
       onTyping(payload as TypingPayload)
       return
+    case 'presence_changed':
+      onPresenceChanged((payload as { user_id: string }).user_id, serverId)
+      return
+  }
+}
+
+/** Biri çevrimiçi/çevrimdışı oldu ya da profilini değiştirdi. */
+function onPresenceChanged(userId: string, serverId?: string): void {
+  if (!ctx) return
+  const { qc } = ctx
+  void qc.invalidateQueries({ queryKey: qk.profile(userId) })
+  if (serverId) {
+    void qc.invalidateQueries({ queryKey: qk.members(serverId) })
+  } else {
+    void qc.invalidateQueries({ queryKey: qk.friendships })
+    void qc.invalidateQueries({ queryKey: qk.conversations })
   }
 }
 
@@ -162,6 +179,9 @@ function onUserEvent(event: string, payload: unknown): void {
     case 'conversation_added':
       void qc.invalidateQueries({ queryKey: qk.conversations })
       return
+    case 'presence_changed':
+      onPresenceChanged((payload as { user_id: string }).user_id)
+      return
   }
 }
 
@@ -171,15 +191,49 @@ function onTyping(p: TypingPayload): void {
   else useTyping.getState().add(p.target_id, p.user_id, p.name)
 }
 
+// ---------------------------------------------------------------- ses varlığı (presence)
+// Ses kanalındaki kişiler sunucu konusunda presence ile yayılır: bağlanmamış üyeler de
+// kanalda kimlerin olduğunu görür; uygulama kapanınca kayıt kendiliğinden düşer.
+let voicePresence: { serverId: string; meta: VoiceMember } | null = null
+
+function syncRoster(serverId: string, ch: RealtimeChannel): void {
+  const state = ch.presenceState<VoiceMember>()
+  const members = Object.values(state)
+    .map((metas) => metas[metas.length - 1])
+    .filter((m): m is VoiceMember & { presence_ref: string } => !!m?.channel_id)
+  useVoiceRoster.getState().setServer(serverId, members)
+}
+
+export function setVoicePresence(serverId: string | null, meta: VoiceMember | null): void {
+  const prev = voicePresence
+  voicePresence = serverId && meta ? { serverId, meta } : null
+  if (prev && prev.serverId !== serverId) {
+    const old = channels.get(`server:${prev.serverId}`)
+    if (old?.state === 'joined') void old.untrack()
+  }
+  if (voicePresence) {
+    const ch = channels.get(`server:${voicePresence.serverId}`)
+    if (ch?.state === 'joined') void ch.track(voicePresence.meta)
+  }
+}
+
 function subscribe(topic: string, handler: (event: string, payload: unknown) => void): void {
   if (channels.has(topic)) return
-  const ch = supabase.channel(topic, { config: { private: true, broadcast: { self: false } } })
+  const serverId = topic.startsWith('server:') ? topic.slice('server:'.length) : null
+  const ch = supabase.channel(topic, {
+    config: { private: true, broadcast: { self: false }, presence: { key: ctx?.me ?? '' } }
+  })
   ch.on('broadcast', { event: '*' }, (msg) => handler(msg.event, msg.payload))
+  if (serverId) ch.on('presence', { event: 'sync' }, () => syncRoster(serverId, ch))
   ch.subscribe((status, err) => {
     if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
       console.warn(`[realtime] ${topic}: ${status}`, err?.message ?? '')
     } else {
       console.debug(`[realtime] ${topic}: ${status}`)
+    }
+    // Yeniden bağlanınca ses varlığı tekrar yayınlanır.
+    if (status === 'SUBSCRIBED' && serverId && voicePresence?.serverId === serverId) {
+      void ch.track(voicePresence.meta)
     }
   })
   channels.set(topic, ch)
@@ -189,6 +243,7 @@ function unsubscribe(topic: string): void {
   const ch = channels.get(topic)
   if (!ch) return
   channels.delete(topic)
+  if (topic.startsWith('server:')) useVoiceRoster.getState().clearServer(topic.slice('server:'.length))
   void supabase.removeChannel(ch)
 }
 

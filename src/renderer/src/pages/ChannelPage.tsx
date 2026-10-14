@@ -9,6 +9,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Tooltip } from '@/components/ui/tooltip'
 import ChatView from '@/components/chat/ChatView'
 import MemberList from '@/components/server/MemberList'
+import VoiceRoom from '@/components/voice/VoiceRoom'
 
 const MEMBERS_KEY = 'oldrictalk-show-members'
 
@@ -47,7 +48,7 @@ export default function ChannelPage(): React.JSX.Element {
             <span className="truncate text-sm text-muted-foreground">{channel.topic}</span>
           </>
         )}
-        <div className="ml-auto flex items-center gap-4">
+        <div className={cn('ml-auto flex items-center gap-4', channel.type !== 'text' && 'hidden')}>
           <Tooltip label={showMembers ? 'Üye Listesini Gizle' : 'Üye Listesini Göster'}>
             <button
               onClick={() => {
@@ -80,13 +81,9 @@ export default function ChannelPage(): React.JSX.Element {
             }
           />
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground">
-            <Volume2 className="h-16 w-16" />
-            <p className="text-lg font-semibold text-header">{channel.name}</p>
-            <p className="max-w-sm">Sesli kanallar bir sonraki aşamada (LiveKit) etkinleşecek.</p>
-          </div>
+          <VoiceRoom channel={channel} server={server} />
         )}
-        {showMembers && <MemberList members={members} server={server} />}
+        {showMembers && channel.type === 'text' && <MemberList members={members} server={server} />}
       </div>
     </>
   )

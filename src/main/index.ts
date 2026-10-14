@@ -1,4 +1,12 @@
-import { app, BrowserWindow, ipcMain, nativeImage, session, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  ipcMain,
+  nativeImage,
+  session,
+  shell
+} from 'electron'
 import { join } from 'node:path'
 
 const APP_ID = 'com.oldric.talk'
@@ -8,7 +16,12 @@ let mainWindow: BrowserWindow | null = null
 
 // Uçtan uca testler birden çok örneği ayrı veri klasörleriyle çalıştırır.
 const testProfile = process.env['OLDRIC_TEST_PROFILE']
-if (testProfile) app.setPath('userData', testProfile)
+if (testProfile) {
+  app.setPath('userData', testProfile)
+  // Testlerde gerçek kamera/mikrofon yerine Chromium'un sahte cihazları.
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+}
 
 // Tek örnek: ikinci açılış mevcut pencereyi öne getirir.
 if (!testProfile && !app.requestSingleInstanceLock()) {
@@ -116,6 +129,44 @@ ipcMain.on('app:badge', (_event, count: number) => {
   }
 })
 
+// ---------------------------------------------------------------- ekran paylaşımı
+// Windows'ta Chromium'un kendi seçicisi yok: renderer kaynak listesini alır, kullanıcı
+// seçer, seçim burada saklanır ve getDisplayMedia isteği o kaynakla yanıtlanır.
+let pendingScreen: { id: string; audio: boolean } | null = null
+
+ipcMain.handle('screen:sources', async () => {
+  const sources = await desktopCapturer.getSources({
+    types: ['screen', 'window'],
+    thumbnailSize: { width: 320, height: 180 },
+    fetchWindowIcons: true
+  })
+  return sources
+    .filter((s) => !s.name.startsWith('OldricTalk') || s.id.startsWith('screen:'))
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      kind: s.id.startsWith('screen:') ? 'screen' : 'window',
+      thumbnail: s.thumbnail.toDataURL(),
+      icon: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.toDataURL() : null
+    }))
+})
+
+ipcMain.handle('screen:select', (_event, id: string, audio: boolean) => {
+  pendingScreen = { id: String(id), audio: !!audio }
+})
+
+function installDisplayMediaHandler(): void {
+  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    const choice = pendingScreen
+    pendingScreen = null
+    if (!choice) return callback({})
+    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] })
+    const source = sources.find((s) => s.id === choice.id)
+    if (!source) return callback({})
+    callback(choice.audio ? { video: source, audio: 'loopback' } : { video: source })
+  })
+}
+
 ipcMain.on('app:flash', () => {
   if (mainWindow && !mainWindow.isFocused()) mainWindow.flashFrame(true)
 })
@@ -132,9 +183,12 @@ app.whenReady().then(() => {
   applyContentSecurityPolicy()
 
   // Kamera/mikrofon/ekran (sesli kanallar) ve bildirim dışındaki izinler kapalı.
+  const allowed = ['media', 'notifications', 'clipboard-sanitized-write', 'display-capture']
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    callback(['media', 'notifications', 'clipboard-sanitized-write', 'display-capture'].includes(permission))
+    callback(allowed.includes(permission))
   })
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => allowed.includes(permission))
+  installDisplayMediaHandler()
 
   createWindow()
 

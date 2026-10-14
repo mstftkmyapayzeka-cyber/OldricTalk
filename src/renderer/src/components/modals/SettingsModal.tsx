@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { LogOut } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { signOut } from '@/lib/session'
 import { errorMessage } from '@/lib/errors'
 import { uploadFile } from '@/lib/upload'
 import type { Profile } from '@/lib/types'
@@ -108,7 +109,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
           </DialogBody>
           <DialogFooter className="justify-between">
             <div className="flex items-center gap-3">
-              <Button type="button" variant="ghost" className="text-dnd" onClick={() => void supabase.auth.signOut()}>
+              <Button type="button" variant="ghost" className="text-dnd" onClick={() => void signOut()}>
                 <LogOut className="h-4 w-4" /> Çıkış yap
               </Button>
               {version && <span className="text-xs text-muted-foreground">v{version}</span>}

@@ -1,64 +1,11 @@
 // Uçtan uca senaryo: iki uygulama örneği (iki test hesabı) gerçek Supabase'e bağlanır,
 // sunucu kurar, davetle katılır, gerçek zamanlı mesajlaşır, arkadaş olur ve DM atar.
 // Kullanım: npm run build && node scripts/e2e.mjs [ekran-görüntüsü-klasörü]
-import { _electron as electron } from 'playwright-core'
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
+import { env, launch, login, shot as shotIn, shotsDir, step, T } from './e2e-lib.mjs'
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, '$1')), '..')
-const env = Object.fromEntries(
-  fs
-    .readFileSync(path.join(root, '.env.test'), 'utf8')
-    .split(/\r?\n/)
-    .filter((l) => l.includes('='))
-    .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)])
-)
-const shots = path.resolve(process.argv[2] ?? path.join(root, 'out', 'shots'))
-fs.mkdirSync(shots, { recursive: true })
+const shots = shotsDir(process.argv[2])
+const shot = (c, file) => shotIn(shots, c, file)
 const stamp = Date.now().toString(36)
-const T = 20_000
-
-// VS Code gibi Electron tabanlı bir ortamdan çalışınca miras kalan bu değişken
-// Electron'u düz Node olarak başlatır.
-const { ELECTRON_RUN_AS_NODE: _ignored, ...baseEnv } = process.env
-
-async function launch(name) {
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), `oldric-${name}-`))
-  const app = await electron.launch({
-    args: [root],
-    cwd: root,
-    env: { ...baseEnv, OLDRIC_TEST_PROFILE: profile }
-  })
-  const win = await app.firstWindow()
-  win.on('console', (m) => {
-    const t = m.text()
-    if (t.includes('Electron Security Warning')) return
-    if (m.type() === 'error' || m.type() === 'warning' || t.startsWith('[realtime]')) {
-      console.log(`  [${name}] ${t}`)
-    }
-  })
-  return { app, win, name }
-}
-
-async function shot(c, file) {
-  await c.win.waitForTimeout(400)
-  await c.win.screenshot({ path: path.join(shots, file) })
-  console.log('  📸', file)
-}
-
-async function login(c, email, password) {
-  await c.win.getByLabel('E-posta').fill(email)
-  await c.win.getByLabel('Şifre').fill(password)
-  await c.win.getByRole('button', { name: 'Giriş Yap' }).click()
-  await c.win.getByRole('link', { name: 'Arkadaşlar' }).waitFor({ timeout: T })
-}
-
-async function step(title, fn) {
-  process.stdout.write(`• ${title}\n`)
-  await fn()
-}
-
 const a = await launch('ayse')
 const b = await launch('mehmet')
 let failed = false
@@ -147,7 +94,7 @@ try {
     }
     // Mehmet açık olduğu için Çevrimiçi sekmesinde görünmeli (heartbeat).
     await a.win.getByRole('button', { name: 'Çevrimiçi', exact: true }).click()
-    await a.win.getByText('Mehmet (test)').first().waitFor({ timeout: T })
+    await a.win.locator('main').getByText('Mehmet (test)').first().waitFor({ timeout: T })
     await shot(a, '10-arkadaslar.png')
   })
 

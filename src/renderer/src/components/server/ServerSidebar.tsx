@@ -14,6 +14,8 @@ import {
   Volume2
 } from 'lucide-react'
 import { markRead } from '@/lib/actions'
+import { joinVoice } from '@/lib/voice'
+import VoiceChannelMembers from '@/components/voice/VoiceChannelMembers'
 import { cn } from '@/lib/utils'
 import type { Channel, ChannelType, Server } from '@/lib/types'
 import { useChannels } from '@/hooks/queries'
@@ -38,10 +40,12 @@ import UserPanel from '@/components/layout/UserPanel'
 
 function ChannelRow({
   channel,
+  serverName,
   unread,
   canManage
 }: {
   channel: Channel
+  serverName: string
   unread: boolean
   canManage: boolean
 }): React.JSX.Element {
@@ -55,6 +59,10 @@ function ChannelRow({
       <ContextMenuTrigger asChild>
         <NavLink
           to={`/channels/${channel.server_id}/${channel.id}`}
+          // Ses kanalına tıklamak doğrudan bağlanır (Discord davranışı).
+          onClick={() => {
+            if (channel.type === 'voice') void joinVoice(channel, serverName)
+          }}
           className={({ isActive }) =>
             cn(
               'group relative flex h-8 items-center gap-1.5 rounded-md px-2',
@@ -208,6 +216,7 @@ export default function ServerSidebar({ server }: { server: Server }): React.JSX
             <ChannelRow
               key={c.id}
               channel={c}
+              serverName={server.name}
               unread={channelUnread.has(c.id) && c.id !== channelId}
               canManage={isModerator}
             />
@@ -215,7 +224,10 @@ export default function ServerSidebar({ server }: { server: Server }): React.JSX
         </Section>
         <Section label="Ses Kanalları" type="voice" server={server} canManage={isModerator}>
           {voice.map((c) => (
-            <ChannelRow key={c.id} channel={c} unread={false} canManage={isModerator} />
+            <div key={c.id}>
+              <ChannelRow channel={c} serverName={server.name} unread={false} canManage={isModerator} />
+              <VoiceChannelMembers serverId={server.id} channelId={c.id} />
+            </div>
           ))}
         </Section>
       </div>

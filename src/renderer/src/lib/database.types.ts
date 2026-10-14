@@ -356,6 +356,7 @@ export type Database = {
       delete_message: { Args: { p_message: string }; Returns: undefined }
       delete_server: { Args: { p_server: string }; Returns: undefined }
       heartbeat: { Args: never; Returns: undefined }
+      go_offline: { Args: never; Returns: undefined }
       invite_preview: {
         Args: { p_code: string }
         Returns: {

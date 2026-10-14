@@ -1,6 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { LogOut, Settings } from 'lucide-react'
+import { Headphones, HeadphoneOff, LogOut, Mic, MicOff, Settings } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { signOut } from '@/lib/session'
+import { toggleDeafen, toggleMute, useVoice } from '@/lib/voice'
+import { cn } from '@/lib/utils'
+import VoicePanel from '@/components/voice/VoicePanel'
 import { displayStatus, STATUS_LABEL } from '@/lib/presence'
 import type { Profile, UserStatus } from '@/lib/types'
 import { qk, useMyProfile } from '@/hooks/queries'
@@ -21,6 +25,7 @@ export default function UserPanel(): React.JSX.Element | null {
   const { data: me } = useMyProfile()
   const qc = useQueryClient()
   const open = useModal((s) => s.open)
+  const voice = useVoice()
   if (!me) return null
 
   async function setStatus(status: UserStatus): Promise<void> {
@@ -31,7 +36,9 @@ export default function UserPanel(): React.JSX.Element | null {
   const shown = displayStatus({ ...me, last_seen_at: new Date().toISOString() })
 
   return (
-    <div className="flex h-[52px] shrink-0 items-center gap-1 bg-[hsl(225_7%_15%)] px-2">
+    <>
+    <VoicePanel />
+    <div className="flex h-[52px] shrink-0 items-center gap-0.5 bg-[hsl(225_7%_15%)] px-2">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 pl-0.5 pr-2 text-left hover:bg-hover">
@@ -68,19 +75,49 @@ export default function UserPanel(): React.JSX.Element | null {
           <DropdownMenuItem onSelect={() => open({ type: 'settings' })}>
             <Settings className="h-4 w-4" /> Profili düzenle
           </DropdownMenuItem>
-          <DropdownMenuItem danger onSelect={() => void supabase.auth.signOut()}>
+          <DropdownMenuItem danger onSelect={() => void signOut()}>
             <LogOut className="h-4 w-4" /> Çıkış yap
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <Tooltip label={voice.muted ? 'Mikrofonu Aç' : 'Sessize Al'}>
+        <button
+          onClick={() => void toggleMute()}
+          aria-label={voice.muted ? 'Mikrofonu Aç' : 'Sessize Al'}
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md hover:bg-hover',
+            voice.muted ? 'text-dnd' : 'text-muted-foreground hover:text-header'
+          )}
+        >
+          {voice.muted ? <MicOff className="h-[18px] w-[18px]" /> : <Mic className="h-[18px] w-[18px]" />}
+        </button>
+      </Tooltip>
+      <Tooltip label={voice.deafened ? 'Sağırlaştırmayı Kaldır' : 'Sağırlaştır'}>
+        <button
+          onClick={() => void toggleDeafen()}
+          aria-label={voice.deafened ? 'Sağırlaştırmayı Kaldır' : 'Sağırlaştır'}
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md hover:bg-hover',
+            voice.deafened ? 'text-dnd' : 'text-muted-foreground hover:text-header'
+          )}
+        >
+          {voice.deafened ? (
+            <HeadphoneOff className="h-[18px] w-[18px]" />
+          ) : (
+            <Headphones className="h-[18px] w-[18px]" />
+          )}
+        </button>
+      </Tooltip>
       <Tooltip label="Kullanıcı Ayarları">
         <button
           onClick={() => open({ type: 'settings' })}
+          aria-label="Kullanıcı Ayarları"
           className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-header"
         >
           <Settings className="h-[18px] w-[18px]" />
         </button>
       </Tooltip>
     </div>
+    </>
   )
 }
