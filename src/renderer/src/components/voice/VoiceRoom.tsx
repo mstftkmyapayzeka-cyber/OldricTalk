@@ -1,13 +1,4 @@
-import { useMemo, useState } from 'react'
-import {
-  isTrackReference,
-  useIsMuted,
-  useIsSpeaking,
-  useTracks,
-  VideoTrack,
-  type TrackReferenceOrPlaceholder
-} from '@livekit/components-react'
-import { Track } from 'livekit-client'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Headphones,
   HeadphoneOff,
@@ -28,44 +19,60 @@ import {
   toggleCamera,
   toggleDeafen,
   toggleMute,
+  useVideoStreams,
   useVoice
 } from '@/lib/voice'
 import { cn } from '@/lib/utils'
 import type { Channel, Server } from '@/lib/types'
-import { useChannelVoiceMembers } from '@/stores/voiceRoster'
+import { useChannelVoiceMembers, type VoiceMember } from '@/stores/voiceRoster'
+import { useUserId } from '@/stores/auth'
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip } from '@/components/ui/tooltip'
 import ScreenPicker from './ScreenPicker'
 
-function avatarOf(metadata: string | undefined): string | null {
-  try {
-    return (JSON.parse(metadata ?? '{}').avatar_url as string | null) ?? null
-  } catch {
-    return null
-  }
+function VideoView({
+  stream,
+  mirror,
+  contain
+}: {
+  stream: MediaStream
+  mirror?: boolean
+  contain?: boolean
+}): React.JSX.Element {
+  const ref = useRef<HTMLVideoElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.srcObject = stream
+  }, [stream])
+  return (
+    <video
+      ref={ref}
+      autoPlay
+      playsInline
+      muted
+      className={cn('h-full w-full', contain ? 'object-contain' : 'object-cover', mirror && '-scale-x-100')}
+    />
+  )
 }
 
-const keyOf = (t: TrackReferenceOrPlaceholder): string => `${t.participant.identity}:${t.source}`
+type TileData = { key: string; member: VoiceMember; kind: 'camera' | 'screen'; stream?: MediaStream }
 
 function Tile({
-  trackRef,
+  tile,
+  isMe,
+  speaking,
   big,
   onClick
 }: {
-  trackRef: TrackReferenceOrPlaceholder
+  tile: TileData
+  isMe: boolean
+  speaking: boolean
   big?: boolean
   onClick?: () => void
 }): React.JSX.Element {
-  const p = trackRef.participant
-  const speaking = useIsSpeaking(p)
-  const micMuted = useIsMuted({ participant: p, source: Track.Source.Microphone })
-  const isScreen = trackRef.source === Track.Source.ScreenShare
-  const hasVideo =
-    isTrackReference(trackRef) && !!trackRef.publication.track && !trackRef.publication.isMuted
-  const name = p.name || p.identity
-
+  const { member: m, kind, stream } = tile
+  const isScreen = kind === 'screen'
   return (
     <div
       onClick={onClick}
@@ -75,18 +82,17 @@ function Tile({
         big ? 'h-full w-full' : 'aspect-video w-full'
       )}
     >
-      {hasVideo ? (
-        <VideoTrack
-          trackRef={trackRef}
-          className={cn('h-full w-full', isScreen ? 'object-contain' : 'object-cover')}
-        />
+      {stream ? (
+        <VideoView stream={stream} mirror={isMe && !isScreen} contain={isScreen} />
+      ) : isScreen ? (
+        <Spinner />
       ) : (
-        <Avatar src={avatarOf(p.metadata)} name={name} seed={p.identity} size={big ? 112 : 72} />
+        <Avatar src={m.avatar_url} name={m.name} seed={m.user_id} size={big ? 112 : 72} />
       )}
       <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded bg-black/60 px-2 py-0.5 text-sm text-white">
-        {micMuted && !isScreen && <MicOff className="h-3.5 w-3.5 text-dnd" />}
+        {!isScreen && (m.deafened ? <HeadphoneOff className="h-3.5 w-3.5 text-dnd" /> : m.muted && <MicOff className="h-3.5 w-3.5 text-dnd" />)}
         {isScreen && <MonitorUp className="h-3.5 w-3.5" />}
-        <span className="max-w-[200px] truncate">{isScreen ? `${name} — ekran` : name}</span>
+        <span className="max-w-[200px] truncate">{isScreen ? `${m.name} — ekran` : m.name}</span>
       </div>
       {onClick && (
         <span className="absolute right-2 top-2 hidden rounded bg-black/60 p-1 text-white group-hover:block">
@@ -130,42 +136,61 @@ function ControlButton({
   )
 }
 
-function ConnectedRoom(): React.JSX.Element {
+function ConnectedRoom({ members }: { members: VoiceMember[] }): React.JSX.Element {
   const v = useVoice()
+  const me = useUserId()
+  const streams = useVideoStreams()
   const [picking, setPicking] = useState(false)
   const [focus, setFocus] = useState<string | null>(null)
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false }
-    ],
-    { onlySubscribed: false }
-  )
+
+  // Her kişi için bir karo; ekran paylaşan için ayrıca ekran karosu.
+  const tiles = useMemo<TileData[]>(() => {
+    const list: TileData[] = []
+    for (const m of members) {
+      list.push({ key: `${m.user_id}:camera`, member: m, kind: 'camera', stream: streams[m.user_id]?.camera })
+      if (m.screen) {
+        list.push({ key: `${m.user_id}:screen`, member: m, kind: 'screen', stream: streams[m.user_id]?.screen })
+      }
+    }
+    return list
+  }, [members, streams])
 
   // Ekran paylaşımı varsa ve kullanıcı başka şey seçmediyse o öne çıkar.
   const focused = useMemo(() => {
-    if (focus) return tracks.find((t) => keyOf(t) === focus) ?? null
-    return tracks.find((t) => t.source === Track.Source.ScreenShare) ?? null
-  }, [tracks, focus])
-  const others = focused ? tracks.filter((t) => keyOf(t) !== keyOf(focused)) : tracks
+    if (focus) return tiles.find((t) => t.key === focus) ?? null
+    return tiles.find((t) => t.kind === 'screen') ?? null
+  }, [tiles, focus])
+  const others = focused ? tiles.filter((t) => t.key !== focused.key) : tiles
   const cols = others.length <= 1 ? 1 : others.length <= 4 ? 2 : others.length <= 9 ? 3 : 4
+  const speaking = new Set(v.speaking)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-floating">
       {v.status !== 'connected' ? (
         <div className="flex flex-1 items-center justify-center gap-3 text-muted-foreground">
-          <Spinner /> {v.status === 'connecting' ? 'Bağlanıyor…' : 'Yeniden bağlanıyor…'}
+          <Spinner /> Bağlanıyor…
         </div>
       ) : focused ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
           <div className="min-h-0 flex-1">
-            <Tile trackRef={focused} big onClick={() => setFocus(focus ? null : keyOf(focused))} />
+            <Tile
+              tile={focused}
+              isMe={focused.member.user_id === me}
+              speaking={speaking.has(focused.member.user_id)}
+              big
+              onClick={() => setFocus(focus ? null : focused.key)}
+            />
           </div>
           {others.length > 0 && (
             <div className="flex h-[120px] shrink-0 justify-center gap-3">
               {others.map((t) => (
-                <div key={keyOf(t)} className="w-[213px]">
-                  <Tile trackRef={t} onClick={() => setFocus(keyOf(t))} />
+                <div key={t.key} className="w-[213px]">
+                  <Tile
+                    tile={t}
+                    isMe={t.member.user_id === me}
+                    speaking={speaking.has(t.member.user_id)}
+                    onClick={() => setFocus(t.key)}
+                  />
                 </div>
               ))}
             </div>
@@ -178,7 +203,13 @@ function ConnectedRoom(): React.JSX.Element {
             style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
           >
             {others.map((t) => (
-              <Tile key={keyOf(t)} trackRef={t} onClick={() => setFocus(keyOf(t))} />
+              <Tile
+                key={t.key}
+                tile={t}
+                isMe={t.member.user_id === me}
+                speaking={speaking.has(t.member.user_id)}
+                onClick={() => setFocus(t.key)}
+              />
             ))}
           </div>
         </div>
@@ -225,7 +256,7 @@ export default function VoiceRoom({
   const members = useChannelVoiceMembers(server.id, channel.id)
   const here = v.channelId === channel.id && v.status !== 'idle'
 
-  if (here) return <ConnectedRoom />
+  if (here) return <ConnectedRoom members={members} />
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-floating text-center">

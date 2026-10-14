@@ -4,8 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { HEARTBEAT_MS } from '@/lib/presence'
 import { startRealtime, stopRealtime, syncServerTopics } from '@/lib/realtime'
-import { leaveVoice, room, setVoiceIdentity, useVoice } from '@/lib/voice'
-import { RoomAudioRenderer, RoomContext } from '@livekit/components-react'
+import { leaveVoice, setVoiceIdentity } from '@/lib/voice'
 import { useMyProfile, useServers } from '@/hooks/queries'
 import { useUnread } from '@/hooks/useUnread'
 import { useUserId } from '@/stores/auth'
@@ -21,7 +20,6 @@ export default function AppShell(): React.JSX.Element {
   const profile = useMyProfile()
   const servers = useServers()
   const { dmUnread } = useUnread()
-  const deafened = useVoice((s) => s.deafened)
 
   // navigate her gezinmede yeni kimlik alır; bağlantıyı yeniden kurmasın diye ref'te tutulur.
   const navigateRef = useRef(navigate)
@@ -92,15 +90,12 @@ export default function AppShell(): React.JSX.Element {
   }
 
   return (
-    <RoomContext.Provider value={room}>
-      <div className="flex h-full">
-        <ServerRail />
-        <div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-lg">
-          <Outlet />
-        </div>
-        <ModalHost />
+    <div className="flex h-full">
+      <ServerRail />
+      <div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-lg">
+        <Outlet />
       </div>
-      <RoomAudioRenderer muted={deafened} />
-    </RoomContext.Provider>
+      <ModalHost />
+    </div>
   )
 }

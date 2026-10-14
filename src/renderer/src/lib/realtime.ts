@@ -217,6 +217,23 @@ export function setVoicePresence(serverId: string | null, meta: VoiceMember | nu
   }
 }
 
+const joinedOnce = new Set<string>()
+
+function resyncTopic(topic: string, serverId: string | null, reconnect: boolean): void {
+  if (!ctx) return
+  const { qc } = ctx
+  if (serverId) {
+    void qc.invalidateQueries({ queryKey: qk.members(serverId) })
+    void qc.invalidateQueries({ queryKey: qk.channels(serverId) })
+    if (reconnect) void qc.invalidateQueries({ queryKey: ['messages'] })
+  } else if (topic.startsWith('user:')) {
+    void qc.invalidateQueries({ queryKey: qk.friendships })
+    void qc.invalidateQueries({ queryKey: qk.conversations })
+    void qc.invalidateQueries({ queryKey: qk.servers })
+    if (reconnect) void qc.invalidateQueries({ queryKey: ['messages'] })
+  }
+}
+
 function subscribe(topic: string, handler: (event: string, payload: unknown) => void): void {
   if (channels.has(topic)) return
   const serverId = topic.startsWith('server:') ? topic.slice('server:'.length) : null
@@ -231,10 +248,14 @@ function subscribe(topic: string, handler: (event: string, payload: unknown) => 
     } else {
       console.debug(`[realtime] ${topic}: ${status}`)
     }
+    if (status !== 'SUBSCRIBED') return
+    // Katılım tamamlanmadan önce yayınlanan olaylar kaçmış olabilir: ilgili listeleri
+    // tazele. Kopup yeniden bağlanınca arada kaçan mesajları da yeniden çek.
+    const reconnect = joinedOnce.has(topic)
+    joinedOnce.add(topic)
+    resyncTopic(topic, serverId, reconnect)
     // Yeniden bağlanınca ses varlığı tekrar yayınlanır.
-    if (status === 'SUBSCRIBED' && serverId && voicePresence?.serverId === serverId) {
-      void ch.track(voicePresence.meta)
-    }
+    if (serverId && voicePresence?.serverId === serverId) void ch.track(voicePresence.meta)
   })
   channels.set(topic, ch)
 }
@@ -243,6 +264,7 @@ function unsubscribe(topic: string): void {
   const ch = channels.get(topic)
   if (!ch) return
   channels.delete(topic)
+  joinedOnce.delete(topic)
   if (topic.startsWith('server:')) useVoiceRoster.getState().clearServer(topic.slice('server:'.length))
   void supabase.removeChannel(ch)
 }
@@ -261,6 +283,7 @@ export function startRealtime(next: Ctx): void {
 
 export function stopRealtime(): void {
   for (const topic of [...channels.keys()]) unsubscribe(topic)
+  joinedOnce.clear()
   ctx = null
 }
 

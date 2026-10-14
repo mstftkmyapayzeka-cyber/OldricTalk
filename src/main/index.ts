@@ -100,7 +100,7 @@ function applyContentSecurityPolicy(): void {
     "img-src 'self' data: blob: https://*.supabase.co",
     "media-src 'self' blob: https://*.supabase.co",
     "font-src 'self' data:",
-    `connect-src 'self' ${supabase} https://*.livekit.cloud wss://*.livekit.cloud`
+    `connect-src 'self' ${supabase}`
   ].join('; ')
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({

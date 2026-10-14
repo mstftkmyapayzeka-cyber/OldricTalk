@@ -24,8 +24,7 @@ export default function VoicePanel(): React.JSX.Element | null {
     )
   }
 
-  const statusText =
-    v.status === 'connecting' ? 'Bağlanıyor…' : v.status === 'reconnecting' ? 'Yeniden bağlanıyor…' : 'Ses Bağlandı'
+  const statusText = v.status === 'connecting' ? 'Bağlanıyor…' : 'Ses Bağlandı'
 
   return (
     <div className="border-b border-black/30 bg-[hsl(225_7%_15%)] px-2 pb-2 pt-1.5">

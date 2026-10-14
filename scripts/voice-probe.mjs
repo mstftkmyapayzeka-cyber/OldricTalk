@@ -1,6 +1,6 @@
-// Ses token tanısı: test1 ile giriş yapar, üyesi olduğu ilk ses kanalı için
-// livekit-token fonksiyonunu çağırır ve sonucu (token'ı göstermeden) yazdırır.
-// Ayrıca üyesi olmadığı rastgele bir kanal kimliğiyle reddedildiğini doğrular.
+// Ses sunucusu tanısı: test1 ile giriş yapar, üyesi olduğu ilk ses kanalı için
+// cf-sfu üzerinden SFU oturumu açmayı dener; ardından yabancı bir kanalın
+// reddedildiğini doğrular. Gizli değer yazdırmaz.
 import { createClient } from '@supabase/supabase-js'
 import fs from 'node:fs'
 
@@ -20,17 +20,18 @@ if (loginError) throw loginError
 
 const { data: ch } = await c.from('channels').select('id, name').eq('type', 'voice').limit(1).single()
 
-async function call(id) {
-  const { data, error } = await c.functions.invoke('livekit-token', { body: { channel_id: id } })
-  if (error) {
-    const body = await error.context?.json?.().catch(() => null)
-    return { status: error.context?.status, body }
-  }
-  const [, payload] = data.token.split('.')
-  const claims = JSON.parse(Buffer.from(payload, 'base64url').toString())
-  return { ok: true, url: data.url, room: claims.video?.room, identity: claims.sub, name: claims.name }
+async function call(body) {
+  const { data, error } = await c.functions.invoke('cf-sfu', { body })
+  if (error) return { status: error.context?.status, body: await error.context?.json?.().catch(() => null) }
+  return data
 }
 
-console.log('kendi ses kanalı:', ch.name, JSON.stringify(await call(ch.id)))
-console.log('yabancı kanal  :', JSON.stringify(await call(crypto.randomUUID())))
+const own = await call({ action: 'session', channel_id: ch.id })
+console.log('kendi ses kanalı:', ch.name, JSON.stringify({
+  ok: !!own.sessionId,
+  turn: Array.isArray(own.iceServers) && own.iceServers.some((s) => String(s.urls).includes('turn')),
+  error: own.body ?? null
+}))
+if (own.sessionId) await call({ action: 'end', session_id: own.sessionId })
+console.log('yabancı kanal  :', JSON.stringify(await call({ action: 'session', channel_id: crypto.randomUUID() })))
 process.exit(0)

@@ -1,30 +1,17 @@
-// Ses/görüntü bağlantısı: uygulama boyunca tek bir LiveKit odası. Bağlantı sayfa
-// değişimlerinde sürer (Discord'daki gibi metin kanallarında gezinirken seste kalınır).
+// Ses/görüntü motoru (Cloudflare Realtime SFU). Bağlantı sayfa değişimlerinde sürer
+// (Discord'daki gibi metin kanallarında gezinirken seste kalınır).
+//
+// Akış: katılınca bir SFU oturumu açılır, mikrofon "mic" adıyla yayınlanır ve oturum
+// kimliği + yayınlanan akış adları Supabase presence ile kanaldakilere duyurulur.
+// Her istemci, kanaldaki diğer kişilerin duyurduğu akışları kendisi çeker.
 import { create } from 'zustand'
-import {
-  ConnectionState,
-  DisconnectReason,
-  Room,
-  RoomEvent,
-  ScreenSharePresets,
-  Track,
-  VideoPresets
-} from 'livekit-client'
-import { FunctionsHttpError } from '@supabase/supabase-js'
-import { supabase } from './supabase'
+import { SfuSession } from './sfu'
 import { setVoicePresence } from './realtime'
 import { playCue } from './sounds'
 import type { Channel, Profile } from './types'
+import { useVoiceRoster, type VoiceMember } from '@/stores/voiceRoster'
 
-export const room = new Room({
-  adaptiveStream: true,
-  dynacast: true,
-  audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
-  publishDefaults: { dtx: true, red: true, screenShareEncoding: ScreenSharePresets.h1080fps30.encoding }
-})
-
-type Status = 'idle' | 'connecting' | 'connected' | 'reconnecting'
+type Status = 'idle' | 'connecting' | 'connected'
 
 type VoiceState = {
   status: Status
@@ -37,9 +24,12 @@ type VoiceState = {
   deafened: boolean
   camera: boolean
   screen: boolean
-  /** Şu an konuşanların kimlikleri (yalnızca bağlı olunan kanalda bilinir). */
+  /** Şu an konuşanların kullanıcı kimlikleri (bağlı olunan kanalda). */
   speaking: string[]
 }
+
+/** Gösterilecek görüntü akışları: kullanıcı id → kamera / ekran. Kendi önizlememiz dahil. */
+export type VideoStreams = Record<string, { camera?: MediaStream; screen?: MediaStream }>
 
 const PREFS_KEY = 'oldrictalk-voice-prefs'
 
@@ -52,21 +42,41 @@ function loadPrefs(): { muted: boolean; deafened: boolean } {
   }
 }
 
-export const useVoice = create<VoiceState>(() => ({
-  status: 'idle',
+const IDLE = {
+  status: 'idle' as Status,
   serverId: null,
   channelId: null,
   channelName: null,
   serverName: null,
-  error: null,
   camera: false,
   screen: false,
-  speaking: [],
-  ...loadPrefs()
-}))
+  speaking: [] as string[]
+}
 
+export const useVoice = create<VoiceState>(() => ({ ...IDLE, error: null, ...loadPrefs() }))
+export const useVideoStreams = create<VideoStreams>(() => ({}))
+
+// ---------------------------------------------------------------- iç durum
 let me: Pick<Profile, 'id' | 'display_name' | 'avatar_url'> | null = null
+let session: SfuSession | null = null
+let attempt = 0
 let mutedBeforeDeafen = false
+
+type Local = { track: MediaStreamTrack; tx: RTCRtpTransceiver }
+const local: Partial<Record<'mic' | 'camera' | 'screen' | 'screen-audio', Local>> = {}
+
+type Remote = {
+  key: string
+  userId: string
+  trackName: string
+  mid: string | null
+  track: MediaStreamTrack | null
+  audio: HTMLAudioElement | null
+}
+/** anahtar `${sessionId}:${trackName}` */
+const remotes = new Map<string, Remote>()
+let reconcileTimer: ReturnType<typeof setTimeout> | null = null
+let rosterUnsub: (() => void) | null = null
 
 export function setVoiceIdentity(p: Pick<Profile, 'id' | 'display_name' | 'avatar_url'>): void {
   me = p
@@ -80,7 +90,7 @@ function savePrefs(): void {
 
 function publishPresence(): void {
   const s = useVoice.getState()
-  if (!me || s.status === 'idle' || !s.serverId || !s.channelId) {
+  if (!me || s.status !== 'connected' || !s.serverId || !s.channelId || !session) {
     setVoicePresence(null, null)
     return
   }
@@ -92,101 +102,262 @@ function publishPresence(): void {
     muted: s.muted,
     deafened: s.deafened,
     video: s.camera,
-    screen: s.screen
+    screen: s.screen,
+    session_id: session.sessionId,
+    tracks: Object.keys(local)
   })
 }
 
-async function tokenFor(channelId: string): Promise<{ token: string; url: string }> {
-  const { data, error } = await supabase.functions.invoke('livekit-token', {
-    body: { channel_id: channelId }
-  })
-  if (error) {
-    if (error instanceof FunctionsHttpError) {
-      const body = await error.context.json().catch(() => null)
-      throw new Error(body?.hint ?? 'Ses kanalına bağlanılamadı.')
+// ---------------------------------------------------------------- uzak akışlar
+function channelMembers(): VoiceMember[] {
+  const s = useVoice.getState()
+  if (!s.serverId || !s.channelId) return []
+  return useVoiceRoster.getState().byServer[s.serverId]?.[s.channelId] ?? []
+}
+
+function scheduleReconcile(delay = 0): void {
+  if (reconcileTimer) clearTimeout(reconcileTimer)
+  reconcileTimer = setTimeout(() => void reconcile(), delay)
+}
+
+/** Kanaldakilerin duyurduğu akışlarla elimizdekini eşitler: eksikleri çek, düşenleri bırak. */
+async function reconcile(): Promise<void> {
+  const sess = session
+  if (!sess || !me || useVoice.getState().status === 'idle') return
+  const wanted = new Map<string, { sessionId: string; trackName: string; userId: string }>()
+  for (const m of channelMembers()) {
+    if (m.user_id === me.id || !m.session_id) continue
+    for (const trackName of m.tracks ?? []) {
+      wanted.set(`${m.session_id}:${trackName}`, { sessionId: m.session_id, trackName, userId: m.user_id })
     }
-    throw new Error('Ses sunucusuna ulaşılamadı.')
   }
-  return data as { token: string; url: string }
+
+  const gone = [...remotes.values()].filter((r) => !wanted.has(r.key))
+  for (const r of gone) dropRemote(r)
+  const goneMids = gone.map((r) => r.mid).filter((m): m is string => !!m)
+  if (goneMids.length) await sess.stopPull(goneMids).catch(() => undefined)
+
+  const missing = [...wanted.entries()].filter(([key]) => !remotes.has(key))
+  if (missing.length === 0) return
+  for (const [key, w] of missing) {
+    remotes.set(key, { key, userId: w.userId, trackName: w.trackName, mid: null, track: null, audio: null })
+  }
+  try {
+    const { pulled, failed } = await sess.pull(missing.map(([, w]) => w))
+    for (const p of pulled) {
+      const r = remotes.get(`${p.sessionId}:${p.trackName}`)
+      if (!r) continue
+      r.mid = p.mid
+      void p.track.then((track) => attachRemote(r, track))
+    }
+    // Yayıncı henüz hazır değilse biraz sonra yeniden dene.
+    for (const f of failed) remotes.delete(`${f.sessionId}:${f.trackName}`)
+    if (failed.length) scheduleReconcile(1500)
+  } catch {
+    for (const [key] of missing) {
+      if (!remotes.get(key)?.mid) remotes.delete(key)
+    }
+    if (session === sess) scheduleReconcile(2000)
+  }
 }
 
+function attachRemote(r: Remote, track: MediaStreamTrack): void {
+  if (remotes.get(r.key) !== r) return
+  r.track = track
+  if (track.kind === 'audio') {
+    const el = new Audio()
+    el.autoplay = true
+    el.srcObject = new MediaStream([track])
+    el.muted = useVoice.getState().deafened
+    void el.play().catch(() => undefined)
+    r.audio = el
+    if (r.trackName === 'mic') watchLevel(r.userId, el.srcObject as MediaStream)
+  } else {
+    const kind = r.trackName === 'screen' ? 'screen' : 'camera'
+    useVideoStreams.setState((s) => ({
+      ...s,
+      [r.userId]: { ...s[r.userId], [kind]: new MediaStream([track]) }
+    }))
+  }
+}
+
+function dropRemote(r: Remote): void {
+  remotes.delete(r.key)
+  if (r.audio) {
+    r.audio.srcObject = null
+    r.audio.remove()
+  }
+  if (r.trackName === 'mic') unwatchLevel(r.userId)
+  if (r.trackName === 'camera' || r.trackName === 'screen') {
+    const kind = r.trackName
+    useVideoStreams.setState((s) => {
+      const next = { ...s, [r.userId]: { ...s[r.userId] } }
+      delete next[r.userId][kind]
+      return next
+    })
+  }
+}
+
+// ---------------------------------------------------------------- konuşan algılama
+const LEVEL_THRESHOLD = 0.018
+let audioCtx: AudioContext | null = null
+const meters = new Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode }>()
+let meterTimer: ReturnType<typeof setInterval> | null = null
+
+function watchLevel(userId: string, stream: MediaStream): void {
+  unwatchLevel(userId)
+  audioCtx ??= new AudioContext()
+  const source = audioCtx.createMediaStreamSource(stream)
+  const analyser = audioCtx.createAnalyser()
+  analyser.fftSize = 512
+  source.connect(analyser)
+  meters.set(userId, { source, analyser })
+  meterTimer ??= setInterval(sampleLevels, 120)
+}
+
+function unwatchLevel(userId: string): void {
+  const m = meters.get(userId)
+  if (!m) return
+  m.source.disconnect()
+  meters.delete(userId)
+}
+
+const buf = new Float32Array(512)
+function sampleLevels(): void {
+  const s = useVoice.getState()
+  const now: string[] = []
+  for (const [userId, { analyser }] of meters) {
+    if (userId === me?.id && s.muted) continue
+    analyser.getFloatTimeDomainData(buf)
+    let sum = 0
+    for (const v of buf) sum += v * v
+    if (Math.sqrt(sum / buf.length) > LEVEL_THRESHOLD) now.push(userId)
+  }
+  now.sort()
+  if (now.join() !== s.speaking.join()) useVoice.setState({ speaking: now })
+}
+
+// ---------------------------------------------------------------- yerel yayınlar
+async function publishLocal(
+  name: 'mic' | 'camera' | 'screen' | 'screen-audio',
+  track: MediaStreamTrack
+): Promise<void> {
+  if (!session) throw new Error('Bağlı değil.')
+  const tx = await session.publish(track, name)
+  local[name] = { track, tx }
+}
+
+async function unpublishLocal(name: 'mic' | 'camera' | 'screen' | 'screen-audio'): Promise<void> {
+  const l = local[name]
+  if (!l) return
+  delete local[name]
+  await session?.unpublish(l.tx).catch(() => undefined)
+  l.track.stop()
+}
+
+async function startMic(): Promise<boolean> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    })
+    const track = stream.getAudioTracks()[0]
+    track.enabled = !useVoice.getState().muted
+    await publishLocal('mic', track)
+    if (me) watchLevel(me.id, stream)
+    return true
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------- dışa açık işlemler
 export async function joinVoice(channel: Channel, serverName: string): Promise<void> {
   const s = useVoice.getState()
   if (s.channelId === channel.id && s.status !== 'idle') return
   if (s.status !== 'idle') await leaveVoice(false)
 
+  const mine = ++attempt
   useVoice.setState({
+    ...IDLE,
     status: 'connecting',
     serverId: channel.server_id,
     channelId: channel.id,
     channelName: channel.name,
     serverName,
-    error: null,
-    camera: false,
-    screen: false
+    error: null
   })
   try {
-    const { token, url } = await tokenFor(channel.id)
-    // Bu arada başka kanala geçildiyse vazgeç.
-    if (useVoice.getState().channelId !== channel.id) return
-    await room.connect(url, token, { autoSubscribe: true })
+    const sess = await SfuSession.create(channel.id)
+    if (mine !== attempt) {
+      void sess.close()
+      return
+    }
+    session = sess
+    sess.pc.addEventListener('connectionstatechange', () => {
+      if (session === sess && sess.pc.connectionState === 'failed') {
+        void leaveVoice(false).then(() => useVoice.setState({ error: 'Ses bağlantısı koptu.' }))
+      }
+    })
+
+    const { muted, deafened } = useVoice.getState()
+    const micOk = await startMic()
+    if (mine !== attempt) return
+    if (!micOk) useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi; sessiz katıldın.' })
+    else if (deafened || muted) local.mic!.track.enabled = false
+
+    // Mikrofon yoksa ilk bağlantı ilk çekmeyle kurulur.
+    if (micOk) await sess.waitConnected()
     useVoice.setState({ status: 'connected' })
     playCue('join')
-    const { muted, deafened } = useVoice.getState()
-    if (!muted && !deafened) {
-      try {
-        await room.localParticipant.setMicrophoneEnabled(true)
-      } catch {
-        useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi; sessiz katıldın.' })
-      }
-    }
     publishPresence()
+    rosterUnsub = useVoiceRoster.subscribe(() => scheduleReconcile(50))
+    scheduleReconcile()
   } catch (e) {
-    await room.disconnect()
-    useVoice.setState({
-      status: 'idle',
-      serverId: null,
-      channelId: null,
-      channelName: null,
-      serverName: null,
-      error: e instanceof Error ? e.message : 'Ses kanalına bağlanılamadı.'
-    })
-    publishPresence()
+    if (mine !== attempt) return
+    await leaveVoice(false)
+    useVoice.setState({ error: e instanceof Error ? e.message : 'Ses kanalına bağlanılamadı.' })
   }
 }
 
 export async function leaveVoice(cue = true): Promise<void> {
-  if (useVoice.getState().status === 'idle') return
-  useVoice.setState({
-    status: 'idle',
-    serverId: null,
-    channelId: null,
-    channelName: null,
-    serverName: null,
-    camera: false,
-    screen: false,
-    speaking: []
-  })
+  const wasConnected = useVoice.getState().status !== 'idle'
+  attempt++
+  useVoice.setState({ ...IDLE })
   publishPresence()
-  await room.disconnect()
-  if (cue) playCue('leave')
+  rosterUnsub?.()
+  rosterUnsub = null
+  if (reconcileTimer) clearTimeout(reconcileTimer)
+  for (const r of [...remotes.values()]) dropRemote(r)
+  for (const userId of [...meters.keys()]) unwatchLevel(userId)
+  for (const key of Object.keys(local) as (keyof typeof local)[]) {
+    local[key]?.track.stop()
+    delete local[key]
+  }
+  useVideoStreams.setState({}, true)
+  const sess = session
+  session = null
+  await sess?.close()
+  if (cue && wasConnected) playCue('leave')
 }
 
 export async function toggleMute(): Promise<void> {
   const s = useVoice.getState()
   const muted = !s.muted
-  // Sağırken mikrofon açılırsa sağırlık da kalkar (Discord davranışı).
-  useVoice.setState({ muted, deafened: muted ? s.deafened : false })
+  useVoice.setState({ muted, deafened: muted ? s.deafened : false, error: null })
+  if (!muted && s.deafened) setDeafenedAudio(false)
   savePrefs()
   playCue(muted ? 'mute' : 'unmute')
   if (s.status === 'connected') {
-    try {
-      await room.localParticipant.setMicrophoneEnabled(!muted)
-    } catch {
+    if (local.mic) local.mic.track.enabled = !muted
+    else if (!muted && !(await startMic())) {
       useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi.' })
     }
   }
   publishPresence()
+}
+
+function setDeafenedAudio(deafened: boolean): void {
+  for (const r of remotes.values()) if (r.audio) r.audio.muted = deafened
 }
 
 export async function toggleDeafen(): Promise<void> {
@@ -197,34 +368,49 @@ export async function toggleDeafen(): Promise<void> {
   useVoice.setState({ deafened, muted })
   savePrefs()
   playCue(deafened ? 'mute' : 'unmute')
-  if (s.status === 'connected') {
-    await room.localParticipant.setMicrophoneEnabled(!muted).catch(() => {})
-  }
+  setDeafenedAudio(deafened)
+  if (local.mic) local.mic.track.enabled = !muted
   publishPresence()
 }
 
 export async function toggleCamera(): Promise<void> {
   const s = useVoice.getState()
-  if (s.status !== 'connected') return
-  try {
-    await room.localParticipant.setCameraEnabled(!s.camera)
-    useVoice.setState({ camera: !s.camera, error: null })
-  } catch {
-    useVoice.setState({ error: 'Kameraya erişilemedi.' })
+  if (s.status !== 'connected' || !me) return
+  if (s.camera) {
+    await unpublishLocal('camera')
+    useVoice.setState({ camera: false })
+    useVideoStreams.setState((v) => ({ ...v, [me!.id]: { ...v[me!.id], camera: undefined } }))
+  } else {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+      })
+      await publishLocal('camera', stream.getVideoTracks()[0])
+      useVoice.setState({ camera: true, error: null })
+      useVideoStreams.setState((v) => ({ ...v, [me!.id]: { ...v[me!.id], camera: stream } }))
+    } catch {
+      useVoice.setState({ error: 'Kameraya erişilemedi.' })
+    }
   }
   publishPresence()
 }
 
 /** Kaynak önceden window.oldric.selectScreen ile seçilmiş olmalı. */
 export async function startScreenShare(audio: boolean): Promise<void> {
-  if (useVoice.getState().status !== 'connected') return
+  if (useVoice.getState().status !== 'connected' || !me) return
   try {
-    await room.localParticipant.setScreenShareEnabled(true, {
-      audio,
-      contentHint: 'detail',
-      resolution: ScreenSharePresets.h1080fps30.resolution
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 30 } },
+      audio
     })
+    const video = stream.getVideoTracks()[0]
+    video.contentHint = 'detail'
+    video.addEventListener('ended', () => void stopScreenShare())
+    await publishLocal('screen', video)
+    const sound = stream.getAudioTracks()[0]
+    if (sound) await publishLocal('screen-audio', sound)
     useVoice.setState({ screen: true, error: null })
+    useVideoStreams.setState((v) => ({ ...v, [me!.id]: { ...v[me!.id], screen: stream } }))
   } catch {
     useVoice.setState({ error: 'Ekran paylaşımı başlatılamadı.' })
   }
@@ -232,8 +418,11 @@ export async function startScreenShare(audio: boolean): Promise<void> {
 }
 
 export async function stopScreenShare(): Promise<void> {
-  await room.localParticipant.setScreenShareEnabled(false).catch(() => {})
+  if (!local.screen && !local['screen-audio']) return
+  await unpublishLocal('screen')
+  await unpublishLocal('screen-audio')
   useVoice.setState({ screen: false })
+  if (me) useVideoStreams.setState((v) => ({ ...v, [me!.id]: { ...v[me!.id], screen: undefined } }))
   publishPresence()
 }
 
@@ -241,34 +430,11 @@ export function clearVoiceError(): void {
   useVoice.setState({ error: null })
 }
 
-// ---------------------------------------------------------------- oda olayları
-room.on(RoomEvent.Reconnecting, () => useVoice.setState({ status: 'reconnecting' }))
-room.on(RoomEvent.Reconnected, () => useVoice.setState({ status: 'connected' }))
-room.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
-  if (useVoice.getState().status === 'idle') return
-  const kicked = reason === DisconnectReason.DUPLICATE_IDENTITY
-  useVoice.setState({
-    status: 'idle',
-    serverId: null,
-    channelId: null,
-    channelName: null,
-    serverName: null,
-    camera: false,
-    screen: false,
-    error: kicked ? 'Başka bir cihazdan bu kanala bağlandın.' : 'Ses bağlantısı koptu.'
-  })
-  publishPresence()
-})
-room.on(RoomEvent.ActiveSpeakersChanged, (speakers) =>
-  useVoice.setState({ speaking: speakers.map((p) => p.identity) })
-)
-room.on(RoomEvent.ParticipantConnected, () => playCue('join'))
-room.on(RoomEvent.ParticipantDisconnected, () => {
-  if (room.state === ConnectionState.Connected) playCue('leave')
-})
-// Paylaşım işletim sisteminden durdurulursa (ör. "Paylaşımı durdur") durumu eşitle.
-room.on(RoomEvent.LocalTrackUnpublished, (pub) => {
-  if (pub.source === Track.Source.ScreenShare) useVoice.setState({ screen: false })
-  if (pub.source === Track.Source.Camera) useVoice.setState({ camera: false })
-  publishPresence()
+// Bir başkası kanala girip çıkınca kısa ses.
+let lastCount = 0
+useVoiceRoster.subscribe(() => {
+  const n = useVoice.getState().status === 'connected' ? channelMembers().length : 0
+  if (lastCount && n > lastCount) playCue('join')
+  else if (n && n < lastCount) playCue('leave')
+  lastCount = n
 })
