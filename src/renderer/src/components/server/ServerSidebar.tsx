@@ -1,4 +1,4 @@
-import { NavLink, useParams } from 'react-router-dom'
+import { NavLink, useMatch, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
@@ -53,26 +53,28 @@ function ChannelRow({
   const qc = useQueryClient()
   const me = useUserId()
   const Icon = channel.type === 'text' ? Hash : Volume2
+  const to = `/channels/${channel.server_id}/${channel.id}`
+  // ContextMenuTrigger (Radix Slot) className'i metin olarak birleştirir;
+  // NavLink'in fonksiyon className'i orada bozulur, bu yüzden etkinliği burada hesaplıyoruz.
+  const isActive = useMatch(to) !== null
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <NavLink
-          to={`/channels/${channel.server_id}/${channel.id}`}
+          to={to}
           // Ses kanalına tıklamak doğrudan bağlanır (Discord davranışı).
           onClick={() => {
             if (channel.type === 'voice') void joinVoice(channel, serverName)
           }}
-          className={({ isActive }) =>
-            cn(
-              'group relative flex h-8 items-center gap-1.5 rounded-md px-2',
-              isActive
-                ? 'bg-selected text-header'
-                : unread
-                  ? 'text-header hover:bg-hover'
-                  : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-            )
-          }
+          className={cn(
+            'group relative flex h-8 items-center gap-1.5 rounded-md px-2',
+            isActive
+              ? 'bg-selected text-header'
+              : unread
+                ? 'text-header hover:bg-hover'
+                : 'text-muted-foreground hover:bg-hover hover:text-foreground'
+          )}
         >
           {unread && <span className="absolute -left-2 h-2 w-1 rounded-r-full bg-header" />}
           <Icon className="h-5 w-5 shrink-0 opacity-70" />

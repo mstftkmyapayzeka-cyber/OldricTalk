@@ -37,14 +37,14 @@ try {
   })
 
   await step('Ayşe ses kanalına bağlanır; Mehmet kenar çubuğunda görür', async () => {
-    await a.win.getByRole('link', { name: 'Genel' }).click()
+    await a.win.getByRole('link', { name: 'Genel', exact: true }).click()
     await a.win.getByText('Ses Bağlandı').waitFor({ timeout: T })
     await b.win.locator('aside').getByText('Ayşe (test)').waitFor({ timeout: T })
     await shot(dir, b, 'ses-01-kenar-cubugu.png')
   })
 
   await step('Mehmet de bağlanır; ikisi de odada', async () => {
-    await b.win.getByRole('link', { name: 'Genel' }).click()
+    await b.win.getByRole('link', { name: 'Genel', exact: true }).click()
     await b.win.getByText('Ses Bağlandı').waitFor({ timeout: T })
     // Oda görünümünde iki kişinin karosu.
     await a.win.locator('main').getByText('Mehmet (test)').waitFor({ timeout: T })
@@ -64,7 +64,7 @@ try {
   })
 
   await step('Ayşe metin kanalına geçer, seste kalır', async () => {
-    await a.win.getByRole('link', { name: 'genel' }).click()
+    await a.win.getByRole('link', { name: 'genel', exact: true }).click()
     await a.win.getByText('Ses Bağlandı').waitFor({ timeout: T })
     await shot(dir, a, 'ses-04-metinde-seste.png')
   })
