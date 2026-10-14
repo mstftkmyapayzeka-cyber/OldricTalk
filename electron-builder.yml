@@ -1,0 +1,35 @@
+appId: com.oldric.talk
+productName: OldricTalk
+copyright: Copyright © 2026 OLDRİC
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - resources/**
+  - package.json
+asarUnpack:
+  - resources/**
+win:
+  target:
+    - target: nsis
+      arch: x64
+  icon: resources/icon.png
+  artifactName: OldricTalk-Kurulum-${version}.${ext}
+# Tek tıkla kurulum: yönetici izni istemez, kullanıcının klasörüne kurar ve uygulamayı açar.
+nsis:
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: OldricTalk
+  uninstallDisplayName: OldricTalk
+  installerLanguages: [tr_TR]
+  language: '1055'
+  deleteAppDataOnUninstall: false
+# Otomatik güncelleme GitHub Releases'tan okunur (depo herkese açık).
+publish:
+  provider: github
+  owner: mstftkmyapayzeka-cyber
+  repo: OldricTalk
+  releaseType: release

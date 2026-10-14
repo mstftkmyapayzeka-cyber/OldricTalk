@@ -2,16 +2,25 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  Menu,
   nativeImage,
   session,
-  shell
+  shell,
+  Tray
 } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { join } from 'node:path'
 
 const APP_ID = 'com.oldric.talk'
 const isDev = !app.isPackaged
+const ICON = join(__dirname, '../../resources/icon.png')
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+/** Gerçek çıkış (tepsi menüsü, güncelleme); yoksa pencereyi kapatmak tepsiye gizler. */
+let quitting = false
+let trayHintShown = false
+let updateReady = false
 
 // Uçtan uca testler birden çok örneği ayrı veri klasörleriyle çalıştırır.
 const testProfile = process.env['OLDRIC_TEST_PROFILE']
@@ -27,12 +36,7 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
   app.quit()
 }
 
-app.on('second-instance', () => {
-  if (!mainWindow) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
-})
+app.on('second-instance', () => showWindow())
 
 function isSafeExternal(url: string): boolean {
   try {
@@ -52,7 +56,7 @@ function createWindow(): void {
     show: false,
     backgroundColor: '#1e1f22',
     title: 'OldricTalk',
-    icon: join(__dirname, '../../resources/icon.png'),
+    icon: ICON,
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#1e1f22', symbolColor: '#b5bac1', height: 30 },
     webPreferences: {
@@ -64,7 +68,24 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('ready-to-show', () => {
+    // Windows açılışında başlatıldıysa yalnızca tepside dur.
+    if (!process.argv.includes('--hidden')) mainWindow?.show()
+  })
+  // Kapat düğmesi uygulamayı kapatmaz, tepsiye gizler (sesli sohbet sürer).
+  mainWindow.on('close', (event) => {
+    if (quitting || !tray) return
+    event.preventDefault()
+    mainWindow?.hide()
+    if (!trayHintShown) {
+      trayHintShown = true
+      tray.displayBalloon({
+        iconType: 'info',
+        title: 'OldricTalk arka planda çalışıyor',
+        content: 'Tamamen kapatmak için sağ alttaki simgeye sağ tıklayıp "Çık"ı seçin.'
+      })
+    }
+  })
   mainWindow.on('closed', () => {
     mainWindow = null
   })
@@ -128,15 +149,88 @@ ipcMain.on('app:badge', (_event, count: number) => {
   }
 })
 
+function showWindow(): void {
+  if (!mainWindow) return createWindow()
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+// ---------------------------------------------------------------- tepsi simgesi
+function buildTrayMenu(): void {
+  if (!tray) return
+  const atLogin = app.getLoginItemSettings().openAtLogin
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: "OldricTalk'ı Aç", click: showWindow },
+      { type: 'separator' },
+      {
+        label: 'Windows açılınca başlat',
+        type: 'checkbox',
+        checked: atLogin,
+        enabled: app.isPackaged,
+        click: (item) => {
+          app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] })
+        }
+      },
+      updateReady
+        ? { label: 'Güncellemeyi kur ve yeniden başlat', click: () => installUpdate() }
+        : {
+            label: 'Güncellemeleri denetle',
+            enabled: app.isPackaged,
+            click: () => void autoUpdater.checkForUpdates().catch(() => undefined)
+          },
+      { type: 'separator' },
+      {
+        label: 'Çık',
+        click: () => {
+          quitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+}
+
+function createTray(): void {
+  tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }))
+  tray.setToolTip('OldricTalk')
+  tray.on('click', showWindow)
+  buildTrayMenu()
+}
+
+// ---------------------------------------------------------------- otomatik güncelleme
+// GitHub Releases'tan; yeni sürüm arka planda iner, çıkışta ya da tepsiden kurulur.
+function installUpdate(): void {
+  quitting = true
+  autoUpdater.quitAndInstall(true, true)
+}
+
+function setupAutoUpdate(): void {
+  if (!app.isPackaged || testProfile) return
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.on('update-downloaded', (info) => {
+    updateReady = true
+    buildTrayMenu()
+    tray?.displayBalloon({
+      iconType: 'info',
+      title: `OldricTalk ${info.version} hazır`,
+      content: 'Uygulamayı kapattığınızda kurulacak. Hemen kurmak için tepsi simgesine sağ tıklayın.'
+    })
+  })
+  autoUpdater.on('error', () => undefined)
+  const check = (): void => void autoUpdater.checkForUpdates().catch(() => undefined)
+  check()
+  setInterval(check, 4 * 60 * 60 * 1000)
+}
+
 ipcMain.on('app:flash', () => {
   if (mainWindow && !mainWindow.isFocused()) mainWindow.flashFrame(true)
 })
 
 ipcMain.on('app:focus', () => {
-  if (!mainWindow) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
+  if (mainWindow) showWindow()
 })
 
 app.whenReady().then(() => {
@@ -156,11 +250,18 @@ app.whenReady().then(() => {
     permission === 'media' ? details.mediaType === 'audio' : allowed.includes(permission)
   )
 
+  // Testlerde tepsi yok: pencereyi kapatmak uygulamayı kapatır.
+  if (!testProfile) createTray()
   createWindow()
+  setupAutoUpdate()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  quitting = true
 })
 
 app.on('window-all-closed', () => {
