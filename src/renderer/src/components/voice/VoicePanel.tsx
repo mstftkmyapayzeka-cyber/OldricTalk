@@ -1,8 +1,24 @@
 import { useNavigate } from 'react-router-dom'
 import { PhoneOff, Signal, X } from 'lucide-react'
-import { clearVoiceError, leaveVoice, useVoice } from '@/lib/voice'
+import { clearVoiceError, leaveVoice, useVoice, type VoiceQuality } from '@/lib/voice'
 import { cn } from '@/lib/utils'
 import { Tooltip } from '@/components/ui/tooltip'
+
+/** Discord'daki gibi: iyi yeşil, orta sarı, kötü kırmızı. */
+function grade(q: VoiceQuality | null): 'good' | 'fair' | 'bad' {
+  if (!q || q.rtt == null) return 'good'
+  const loss = q.loss ?? 0
+  if (q.rtt < 150 && loss < 1) return 'good'
+  if (q.rtt < 300 && loss < 5) return 'fair'
+  return 'bad'
+}
+
+function qualityText(q: VoiceQuality | null): string | null {
+  if (!q || q.rtt == null) return null
+  const loss = q.loss == null ? '' : ` · kayıp %${q.loss.toFixed(q.loss < 10 ? 1 : 0).replace('.', ',')}`
+  const relay = q.relay ? ` · aktarıcı (${q.relay.toUpperCase()})` : ''
+  return `${q.rtt} ms${loss}${relay}`
+}
 
 /** Kenar çubuğunun altında "Ses Bağlandı" paneli (Discord'daki gibi). */
 export default function VoicePanel(): React.JSX.Element | null {
@@ -22,6 +38,8 @@ export default function VoicePanel(): React.JSX.Element | null {
   }
 
   const statusText = v.status === 'connecting' ? 'Bağlanıyor…' : 'Ses Bağlandı'
+  const g = grade(v.quality)
+  const detail = qualityText(v.quality)
 
   return (
     <div className="border-b border-black/30 bg-[hsl(225_7%_15%)] px-2 pb-2 pt-1.5">
@@ -30,7 +48,7 @@ export default function VoicePanel(): React.JSX.Element | null {
           <div
             className={cn(
               'flex items-center gap-1 text-sm font-semibold',
-              v.status === 'connected' ? 'text-online' : 'text-idle'
+              v.status !== 'connected' ? 'text-idle' : g === 'good' ? 'text-online' : g === 'fair' ? 'text-idle' : 'text-dnd'
             )}
           >
             <Signal className="h-4 w-4" /> {statusText}
@@ -41,6 +59,11 @@ export default function VoicePanel(): React.JSX.Element | null {
           >
             {v.channelName} / {v.serverName}
           </button>
+          {detail && (
+            <p className="truncate text-[11px] text-muted-foreground" aria-label="Bağlantı kalitesi">
+              Bağlantı: {detail}
+            </p>
+          )}
         </div>
         <Tooltip label="Bağlantıyı Kes">
           <button

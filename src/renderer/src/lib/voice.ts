@@ -24,6 +24,17 @@ type VoiceState = {
   deafened: boolean
   /** Şu an konuşanların kullanıcı kimlikleri (bağlı olunan kanalda). */
   speaking: string[]
+  /** Ses sunucusuyla bağlantı kalitesi (bağlıyken birkaç saniyede bir güncellenir). */
+  quality: VoiceQuality | null
+}
+
+export type VoiceQuality = {
+  /** Gidiş-dönüş süresi (ms). */
+  rtt: number | null
+  /** Gelen seste son ölçümdeki paket kaybı (%). */
+  loss: number | null
+  /** Doğrudan bağlanılamayıp aktarıcı (TURN) kullanılıyorsa iletim protokolü. */
+  relay: string | null
 }
 
 const PREFS_KEY = 'oldrictalk-voice-prefs'
@@ -43,7 +54,8 @@ const IDLE = {
   channelId: null,
   channelName: null,
   serverName: null,
-  speaking: [] as string[]
+  speaking: [] as string[],
+  quality: null as VoiceQuality | null
 }
 
 export const useVoice = create<VoiceState>(() => ({ ...IDLE, error: null, ...loadPrefs() }))
@@ -212,12 +224,41 @@ function sampleLevels(): void {
   if (now.join() !== s.speaking.join()) useVoice.setState({ speaking: now })
 }
 
+// ---------------------------------------------------------------- bağlantı kalitesi
+let qualityTimer: ReturnType<typeof setInterval> | null = null
+
+function watchQuality(sess: SfuSession): void {
+  stopQuality()
+  let totals: { lost: number; received: number } | undefined
+  qualityTimer = setInterval(() => {
+    if (session !== sess) return stopQuality()
+    void sess
+      .quality(totals)
+      .then((q) => {
+        totals = q.totals
+        if (session === sess) useVoice.setState({ quality: { rtt: q.rtt, loss: q.loss, relay: q.relay } })
+      })
+      .catch(() => undefined)
+  }, 3000)
+}
+
+function stopQuality(): void {
+  if (qualityTimer) clearInterval(qualityTimer)
+  qualityTimer = null
+}
+
 // ---------------------------------------------------------------- mikrofon
 async function startMic(): Promise<boolean> {
   try {
     if (!session) throw new Error('Bağlı değil.')
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: 48000 }
+      }
     })
     const track = stream.getAudioTracks()[0]
     track.enabled = !useVoice.getState().muted
@@ -267,6 +308,7 @@ export async function joinVoice(channel: Channel, serverName: string): Promise<v
     // Mikrofon yoksa ilk bağlantı ilk çekmeyle kurulur.
     if (micOk) await sess.waitConnected()
     useVoice.setState({ status: 'connected' })
+    watchQuality(sess)
     playCue('join')
     publishPresence()
     rosterUnsub = useVoiceRoster.subscribe(() => scheduleReconcile(50))
@@ -286,6 +328,7 @@ export async function leaveVoice(cue = true): Promise<void> {
   rosterUnsub?.()
   rosterUnsub = null
   if (reconcileTimer) clearTimeout(reconcileTimer)
+  stopQuality()
   for (const r of [...remotes.values()]) dropRemote(r)
   for (const userId of [...meters.keys()]) unwatchLevel(userId)
   mic?.track.stop()

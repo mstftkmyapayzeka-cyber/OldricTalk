@@ -18,22 +18,34 @@ try {
 
   const serverName = `Ses Testi ${stamp}`
   let code = ''
-  await step('Ayşe sunucu kurar, Mehmet katılır', async () => {
-    await a.win.getByRole('button', { name: 'Sunucu Ekle' }).click()
-    await a.win.getByRole('button', { name: /Kendi sunucumu oluştur/ }).click()
-    await a.win.getByLabel('Sunucu adı').fill(serverName)
-    await a.win.getByRole('button', { name: 'Oluştur' }).click()
-    await a.win.getByPlaceholder('#genel kanalına mesaj gönder').waitFor({ timeout: T })
-    await a.win.locator('aside').getByRole('button', { name: serverName }).click()
-    await a.win.getByRole('menuitem', { name: /İnsanları Davet Et/ }).click()
-    code = (await a.win.locator('span.font-mono').first().innerText()).trim()
-    await a.win.keyboard.press('Escape')
-
+  await step('Mehmet sunucu kurar, Ayşe katılır', async () => {
     await b.win.getByRole('button', { name: 'Sunucu Ekle' }).click()
-    await b.win.getByRole('button', { name: 'Bir Sunucuya Katıl' }).click()
-    await b.win.getByLabel('Davet bağlantısı ya da kodu').fill(code)
-    await b.win.getByRole('button', { name: 'Sunucuya Katıl' }).click()
+    await b.win.getByRole('button', { name: /Kendi sunucumu oluştur/ }).click()
+    await b.win.getByLabel('Sunucu adı').fill(serverName)
+    await b.win.getByRole('button', { name: 'Oluştur' }).click()
     await b.win.getByPlaceholder('#genel kanalına mesaj gönder').waitFor({ timeout: T })
+    await b.win.locator('aside').getByRole('button', { name: serverName }).click()
+    await b.win.getByRole('menuitem', { name: /İnsanları Davet Et/ }).click()
+    code = (await b.win.locator('span.font-mono').first().innerText()).trim()
+    await b.win.keyboard.press('Escape')
+
+    await a.win.getByRole('button', { name: 'Sunucu Ekle' }).click()
+    await a.win.getByRole('button', { name: 'Bir Sunucuya Katıl' }).click()
+    await a.win.getByLabel('Davet bağlantısı ya da kodu').fill(code)
+    await a.win.getByRole('button', { name: 'Sunucuya Katıl' }).click()
+    await a.win.getByPlaceholder('#genel kanalına mesaj gönder').waitFor({ timeout: T })
+  })
+
+  // Ayşe'nin bağlantısını sonradan inceleyebilmek için RTCPeerConnection'ları yakala.
+  await a.win.evaluate(() => {
+    const Original = window.RTCPeerConnection
+    window.__pcs = []
+    window.RTCPeerConnection = class extends Original {
+      constructor(...args) {
+        super(...args)
+        window.__pcs.push(this)
+      }
+    }
   })
 
   await step('Ayşe ses kanalına bağlanır; Mehmet kenar çubuğunda görür', async () => {
@@ -49,6 +61,23 @@ try {
     // Oda görünümünde iki kişinin karosu.
     await a.win.locator('main').getByText('Mehmet (test)').waitFor({ timeout: T })
     await shot(dir, a, 'ses-02-oda.png')
+  })
+
+  await step('Ses kalitesi ayarları (Opus 64 kbps, FEC) ve kalite göstergesi', async () => {
+    const info = await a.win.evaluate(() => {
+      const pc = window.__pcs.at(-1)
+      const tx = pc.getTransceivers().find((t) => t.sender.track?.kind === 'audio')
+      return { sdp: pc.remoteDescription.sdp, maxBitrate: tx?.sender.getParameters().encodings?.[0]?.maxBitrate }
+    })
+    if (!/maxaveragebitrate=64000/.test(info.sdp) || !/useinbandfec=1/.test(info.sdp)) {
+      throw new Error('Opus ayarları SDP\'de yok')
+    }
+    if (info.maxBitrate !== 64000) throw new Error(`maxBitrate beklenmedik: ${info.maxBitrate}`)
+    await a.win.getByLabel('Bağlantı kalitesi').getByText(/\d+ ms/).waitFor({ timeout: T })
+  })
+
+  await step('Mehmet\'in sesi Ayşe\'ye ulaşır', async () => {
+    await a.win.locator('main .ring-online').getByText('Mehmet (test)').waitFor({ timeout: T })
   })
 
   await step('Mehmet sessize alır; Ayşe simgeyi görür', async () => {
@@ -77,6 +106,21 @@ try {
       .locator('aside')
       .getByText('Ayşe (test)')
       .waitFor({ state: 'detached', timeout: T })
+  })
+
+  await step('Mikrofonu olmayan Mehmet yine de Ayşe\'yi duyar', async () => {
+    await b.win.getByRole('button', { name: 'Bağlantıyı Kes' }).first().click()
+    await b.win.getByText('Ses Bağlandı').waitFor({ state: 'detached', timeout: T })
+    // Mikrofonu engellenmiş / takılı olmayan kullanıcı.
+    await b.win.evaluate(() => {
+      navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('yok', 'NotFoundError'))
+    })
+    await a.win.getByRole('link', { name: 'Genel', exact: true }).click()
+    await a.win.getByText('Ses Bağlandı').waitFor({ timeout: T })
+    await b.win.getByRole('link', { name: 'Genel', exact: true }).click()
+    await b.win.getByText(/Mikrofona erişilemedi/).waitFor({ timeout: T })
+    await b.win.locator('main .ring-online').getByText('Ayşe (test)').waitFor({ timeout: T })
+    await shot(dir, b, 'ses-05-mikrofonsuz.png')
   })
 } catch (err) {
   failed = true

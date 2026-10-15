@@ -23,6 +23,43 @@ type TracksResponse = {
 
 export type PulledTrack = { sessionId: string; trackName: string; mid: string }
 
+/** Ses kodlayıcısının hedef bit hızı (Discord'un varsayılanı). */
+const OPUS_BITRATE = 64_000
+
+/**
+ * SFU'nun yanıtındaki Opus ayarlarını düzenler. Chromium gönderim bit hızını karşı tarafın
+ * bildirdiği `maxaveragebitrate`'ten alır; yoksa ~32 kbps ile yetinir. Kayıp paketleri
+ * telafi eden FEC açık, sessizlikte yayını kesen DTX kapalı (kelime başları kırpılmasın).
+ */
+function tuneOpus(sdp: string): string {
+  const pt = /^a=rtpmap:(\d+) opus\/48000/im.exec(sdp)?.[1]
+  if (!pt) return sdp
+  const want: Record<string, string> = {
+    minptime: '10',
+    useinbandfec: '1',
+    usedtx: '0',
+    stereo: '0',
+    maxaveragebitrate: String(OPUS_BITRATE)
+  }
+  const line = new RegExp(`^a=fmtp:${pt} (.*)$`, 'm')
+  const merge = (params: string): string => {
+    const map = new Map(
+      params
+        .split(';')
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .map((p) => p.split('=') as [string, string])
+    )
+    for (const [k, v] of Object.entries(want)) map.set(k, v)
+    return [...map].map(([k, v]) => `${k}=${v}`).join(';')
+  }
+  if (line.test(sdp)) return sdp.replace(line, (_m, params: string) => `a=fmtp:${pt} ${merge(params)}`)
+  return sdp.replace(
+    new RegExp(`^(a=rtpmap:${pt} opus/48000.*)$`, 'im'),
+    `$1\r\na=fmtp:${pt} ${merge('')}`
+  )
+}
+
 async function api<T>(payload: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke('cf-sfu', { body: payload })
   if (error) {
@@ -123,9 +160,18 @@ export class SfuSession {
         sessionDescription: this.local(),
         tracks: [{ location: 'local', mid: tx.mid, trackName }]
       })
-      await this.pc.setRemoteDescription(res.sessionDescription!)
+      const answer = res.sessionDescription!
+      await this.pc.setRemoteDescription({ type: answer.type, sdp: tuneOpus(answer.sdp) })
       const failed = res.tracks?.find((t) => t.errorCode)
       if (failed) throw new Error(failed.errorDescription ?? failed.errorCode)
+      // Ses paketleri ağda öncelikli; bit hızı tavanı SDP ile aynı.
+      const params = tx.sender.getParameters()
+      if (params.encodings?.length) {
+        params.encodings[0].maxBitrate = OPUS_BITRATE
+        params.encodings[0].priority = 'high'
+        params.encodings[0].networkPriority = 'high'
+        await tx.sender.setParameters(params).catch(() => undefined)
+      }
       return tx
     })
   }
@@ -191,6 +237,36 @@ export class SfuSession {
       const res = await this.call<TracksResponse>('close', { mids, sessionDescription: this.local() })
       if (res.sessionDescription) await this.pc.setRemoteDescription(res.sessionDescription)
     })
+  }
+
+  /** Bağlantı kalitesi: gidiş-dönüş süresi, gelen seste paket kaybı, aktarıcı kullanımı. */
+  async quality(prev?: { lost: number; received: number }): Promise<{
+    rtt: number | null
+    loss: number | null
+    relay: string | null
+    totals: { lost: number; received: number }
+  }> {
+    const stats = await this.pc.getStats()
+    let pairId: string | undefined
+    let lost = 0
+    let received = 0
+    stats.forEach((s) => {
+      if (s.type === 'transport' && s.selectedCandidatePairId) pairId = s.selectedCandidatePairId
+      if (s.type === 'inbound-rtp' && s.kind === 'audio') {
+        lost += s.packetsLost ?? 0
+        received += s.packetsReceived ?? 0
+      }
+    })
+    const pair = pairId ? stats.get(pairId) : undefined
+    const local = pair ? stats.get(pair.localCandidateId) : undefined
+    const dLost = lost - (prev?.lost ?? 0)
+    const dTotal = dLost + received - (prev?.received ?? 0)
+    return {
+      rtt: pair?.currentRoundTripTime != null ? Math.round(pair.currentRoundTripTime * 1000) : null,
+      loss: dTotal > 0 ? Math.max(0, (dLost / dTotal) * 100) : null,
+      relay: local?.candidateType === 'relay' ? (local.relayProtocol ?? 'udp') : null,
+      totals: { lost, received }
+    }
   }
 
   async close(): Promise<void> {
