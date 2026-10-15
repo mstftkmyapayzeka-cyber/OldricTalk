@@ -115,7 +115,8 @@ function applyContentSecurityPolicy(): void {
   const supabase = 'https://*.supabase.co wss://*.supabase.co'
   const csp = [
     "default-src 'self'",
-    "script-src 'self'",
+    // blob: + wasm: gürültü engelleme (RNNoise) AudioWorklet'i ve WebAssembly'si.
+    "script-src 'self' blob: 'wasm-unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://*.supabase.co",
     "media-src 'self' blob: https://*.supabase.co",
@@ -237,8 +238,8 @@ app.whenReady().then(() => {
   app.setAppUserModelId(APP_ID)
   applyContentSecurityPolicy()
 
-  // Yalnızca mikrofon (sesli kanallar) ve bildirim; kamera ve ekran yakalama kapalı.
-  const allowed = ['notifications', 'clipboard-sanitized-write']
+  // Yalnızca mikrofon (sesli kanallar), hoparlör seçimi ve bildirim; kamera ve ekran yakalama kapalı.
+  const allowed = ['notifications', 'clipboard-sanitized-write', 'speaker-selection']
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
     if (permission === 'media') {
       const types = 'mediaTypes' in details ? (details.mediaTypes ?? []) : []
@@ -246,8 +247,9 @@ app.whenReady().then(() => {
     }
     callback(allowed.includes(permission))
   })
+  // Cihaz listesinin adları için mediaType'sız 'media' kontrolü de gelir; yalnızca video reddedilir.
   session.defaultSession.setPermissionCheckHandler((_wc, permission, _origin, details) =>
-    permission === 'media' ? details.mediaType === 'audio' : allowed.includes(permission)
+    permission === 'media' ? details.mediaType !== 'video' : allowed.includes(permission)
   )
 
   // Testlerde tepsi yok: pencereyi kapatmak uygulamayı kapatır.

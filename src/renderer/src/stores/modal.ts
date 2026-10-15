@@ -12,6 +12,7 @@ export type ModalState =
   | { type: 'editChannel'; channel: Channel }
   | { type: 'deleteChannel'; channel: Channel }
   | { type: 'settings' }
+  | { type: 'voiceSettings' }
 
 type ModalStore = {
   modal: ModalState | null

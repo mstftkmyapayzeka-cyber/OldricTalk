@@ -1,0 +1,46 @@
+import { create } from 'zustand'
+
+/** Ses ayarları; bu bilgisayara özel, localStorage'da saklanır. */
+export type AudioSettings = {
+  /** Mikrofon cihazı; null = Windows varsayılanı. */
+  inputId: string | null
+  /** Hoparlör / kulaklık; null = Windows varsayılanı. */
+  outputId: string | null
+  /** Yapay zekâ ile gürültü engelleme (RNNoise): cızırtı, fan, klavye. */
+  denoise: boolean
+  /** Ses kapısı eşiği otomatik mi, elle mi. */
+  gateAuto: boolean
+  /** Elle eşik (dBFS); bunun altındaki ses gönderilmez. */
+  gateDb: number
+  /** Otomatik ses seviyesi (AGC). */
+  agc: boolean
+  /** Yankı engelleme. */
+  echo: boolean
+}
+
+const KEY = 'oldrictalk-audio-settings'
+
+export const DEFAULT_AUDIO: AudioSettings = {
+  inputId: null,
+  outputId: null,
+  denoise: true,
+  gateAuto: true,
+  gateDb: -50,
+  agc: true,
+  echo: true
+}
+
+function load(): AudioSettings {
+  try {
+    return { ...DEFAULT_AUDIO, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }
+  } catch {
+    return DEFAULT_AUDIO
+  }
+}
+
+export const useAudioSettings = create<AudioSettings>(() => load())
+
+export function setAudioSettings(patch: Partial<AudioSettings>): void {
+  useAudioSettings.setState(patch)
+  localStorage.setItem(KEY, JSON.stringify(useAudioSettings.getState()))
+}

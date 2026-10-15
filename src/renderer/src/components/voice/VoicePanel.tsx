@@ -1,7 +1,8 @@
 import { useNavigate } from 'react-router-dom'
-import { PhoneOff, Signal, X } from 'lucide-react'
+import { PhoneOff, Signal, SlidersHorizontal, X } from 'lucide-react'
 import { clearVoiceError, leaveVoice, useVoice, type VoiceQuality } from '@/lib/voice'
 import { cn } from '@/lib/utils'
+import { useModal } from '@/stores/modal'
 import { Tooltip } from '@/components/ui/tooltip'
 
 /** Discord'daki gibi: iyi yeşil, orta sarı, kötü kırmızı. */
@@ -24,6 +25,7 @@ function qualityText(q: VoiceQuality | null): string | null {
 export default function VoicePanel(): React.JSX.Element | null {
   const v = useVoice()
   const navigate = useNavigate()
+  const openModal = useModal((s) => s.open)
 
   if (v.status === 'idle') {
     if (!v.error) return null
@@ -65,6 +67,15 @@ export default function VoicePanel(): React.JSX.Element | null {
             </p>
           )}
         </div>
+        <Tooltip label="Ses Ayarları">
+          <button
+            onClick={() => openModal({ type: 'voiceSettings' })}
+            aria-label="Ses Ayarları"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-foreground hover:bg-hover hover:text-header"
+          >
+            <SlidersHorizontal className="h-[18px] w-[18px]" />
+          </button>
+        </Tooltip>
         <Tooltip label="Bağlantıyı Kes">
           <button
             onClick={() => void leaveVoice()}

@@ -8,8 +8,10 @@ import { create } from 'zustand'
 import { SfuSession } from './sfu'
 import { setVoicePresence } from './realtime'
 import { playCue } from './sounds'
+import { MicPipeline } from './micPipeline'
 import type { Channel, Profile } from './types'
 import { useVoiceRoster, type VoiceMember } from '@/stores/voiceRoster'
+import { useAudioSettings } from '@/stores/audioSettings'
 
 type Status = 'idle' | 'connecting' | 'connected'
 
@@ -66,7 +68,7 @@ let session: SfuSession | null = null
 let attempt = 0
 let mutedBeforeDeafen = false
 
-let mic: { track: MediaStreamTrack; tx: RTCRtpTransceiver } | null = null
+let mic: { pipeline: MicPipeline; tx: RTCRtpTransceiver } | null = null
 
 type Remote = {
   key: string
@@ -171,6 +173,7 @@ function attachRemote(r: Remote, track: MediaStreamTrack): void {
   el.autoplay = true
   el.srcObject = new MediaStream([track])
   el.muted = useVoice.getState().deafened
+  setOutputDevice(el)
   void el.play().catch(() => undefined)
   r.audio = el
   watchLevel(r.userId, el.srcObject as MediaStream)
@@ -248,27 +251,72 @@ function stopQuality(): void {
 }
 
 // ---------------------------------------------------------------- mikrofon
+/** Ayarlara göre işlenmiş mikrofon; gürültü engelleme yüklenemezse onsuz devam eder. */
+async function createPipeline(): Promise<MicPipeline> {
+  const s = useAudioSettings.getState()
+  try {
+    return await MicPipeline.create(s)
+  } catch (e) {
+    // Mikrofon hataları (izin yok, cihaz yok/meşgul) gürültü engellemeyle ilgisiz.
+    const micError = e instanceof DOMException && /^Not(Allowed|Found|Readable)Error$|^Overconstrained/.test(e.name)
+    if (!s.denoise || micError) throw e
+    console.warn('[ses] gürültü engelleme yüklenemedi, onsuz devam ediliyor:', e)
+    return MicPipeline.create({ ...s, denoise: false })
+  }
+}
+
 async function startMic(): Promise<boolean> {
+  let pipeline: MicPipeline | null = null
   try {
     if (!session) throw new Error('Bağlı değil.')
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: { ideal: 1 },
-        sampleRate: { ideal: 48000 }
-      }
-    })
-    const track = stream.getAudioTracks()[0]
-    track.enabled = !useVoice.getState().muted
-    mic = { track, tx: await session.publish(track, 'mic') }
-    if (me) watchLevel(me.id, stream)
+    pipeline = await createPipeline()
+    pipeline.track.enabled = !useVoice.getState().muted
+    mic = { pipeline, tx: await session.publish(pipeline.track, 'mic') }
+    if (me) watchLevel(me.id, pipeline.stream)
     return true
   } catch {
+    pipeline?.destroy()
     return false
   }
 }
+
+let micRestart = 0
+/** Cihaz ya da işleme ayarı değişince yayını kesmeden mikrofonu yeniler. */
+async function restartMic(): Promise<void> {
+  const current = mic
+  if (!current) return
+  const mine = ++micRestart
+  try {
+    const next = await createPipeline()
+    if (mine !== micRestart || mic !== current) return next.destroy()
+    next.track.enabled = !useVoice.getState().muted
+    await current.tx.sender.replaceTrack(next.track)
+    mic = { pipeline: next, tx: current.tx }
+    if (me) watchLevel(me.id, next.stream)
+    current.pipeline.destroy()
+  } catch {
+    useVoice.setState({ error: 'Seçilen mikrofon açılamadı.' })
+  }
+}
+
+function setOutputDevice(el: HTMLAudioElement): void {
+  const id = useAudioSettings.getState().outputId
+  if (id) void el.setSinkId(id).catch(() => undefined)
+}
+
+useAudioSettings.subscribe((s, prev) => {
+  if (s.outputId !== prev.outputId) {
+    for (const r of remotes.values()) {
+      if (r.audio) void r.audio.setSinkId(s.outputId ?? '').catch(() => undefined)
+    }
+  }
+  if (!mic) return
+  if (s.inputId !== prev.inputId || s.denoise !== prev.denoise || s.agc !== prev.agc || s.echo !== prev.echo) {
+    void restartMic()
+  } else if (s.gateAuto !== prev.gateAuto || s.gateDb !== prev.gateDb) {
+    mic.pipeline.setGate(s.gateAuto, s.gateDb)
+  }
+})
 
 // ---------------------------------------------------------------- dışa açık işlemler
 export async function joinVoice(channel: Channel, serverName: string): Promise<void> {
@@ -303,7 +351,7 @@ export async function joinVoice(channel: Channel, serverName: string): Promise<v
     const micOk = await startMic()
     if (mine !== attempt) return
     if (!micOk) useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi; sessiz katıldın.' })
-    else if (deafened || muted) mic!.track.enabled = false
+    else if (deafened || muted) mic!.pipeline.track.enabled = false
 
     // Mikrofon yoksa ilk bağlantı ilk çekmeyle kurulur.
     if (micOk) await sess.waitConnected()
@@ -331,7 +379,8 @@ export async function leaveVoice(cue = true): Promise<void> {
   stopQuality()
   for (const r of [...remotes.values()]) dropRemote(r)
   for (const userId of [...meters.keys()]) unwatchLevel(userId)
-  mic?.track.stop()
+  micRestart++
+  mic?.pipeline.destroy()
   mic = null
   const sess = session
   session = null
@@ -347,7 +396,7 @@ export async function toggleMute(): Promise<void> {
   savePrefs()
   playCue(muted ? 'mute' : 'unmute')
   if (s.status === 'connected') {
-    if (mic) mic.track.enabled = !muted
+    if (mic) mic.pipeline.track.enabled = !muted
     else if (!muted && !(await startMic())) {
       useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi.' })
     }
@@ -368,7 +417,7 @@ export async function toggleDeafen(): Promise<void> {
   savePrefs()
   playCue(deafened ? 'mute' : 'unmute')
   setDeafenedAudio(deafened)
-  if (mic) mic.track.enabled = !muted
+  if (mic) mic.pipeline.track.enabled = !muted
   publishPresence()
 }
 

@@ -9,6 +9,7 @@ import {
 import { CreateChannelModal, DeleteChannelModal, EditChannelModal } from './ChannelModals'
 import MembersModal from './MembersModal'
 import SettingsModal from './SettingsModal'
+import VoiceSettingsModal from './VoiceSettingsModal'
 
 export default function ModalHost(): React.JSX.Element | null {
   const modal = useModal((s) => s.modal)
@@ -36,5 +37,7 @@ export default function ModalHost(): React.JSX.Element | null {
       return <DeleteChannelModal channel={modal.channel} onClose={close} />
     case 'settings':
       return <SettingsModal onClose={close} />
+    case 'voiceSettings':
+      return <VoiceSettingsModal onClose={close} />
   }
 }

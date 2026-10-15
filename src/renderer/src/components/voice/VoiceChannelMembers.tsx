@@ -17,7 +17,7 @@ export default function VoiceChannelMembers({
   if (members.length === 0) return null
 
   return (
-    <div className="space-y-0.5 pb-1 pl-8">
+    <div className="space-y-0.5 pb-1 pl-8" role="list" aria-label="Ses kanalındakiler">
       {members.map((m) => {
         const talking = !!speaking?.includes(m.user_id) && !m.muted
         return (

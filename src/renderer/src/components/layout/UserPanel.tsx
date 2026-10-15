@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Headphones, HeadphoneOff, LogOut, Mic, MicOff, Settings } from 'lucide-react'
+import { Headphones, HeadphoneOff, LogOut, Mic, MicOff, Settings, SlidersHorizontal } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { signOut } from '@/lib/session'
 import { toggleDeafen, toggleMute, useVoice } from '@/lib/voice'
@@ -74,6 +74,9 @@ export default function UserPanel(): React.JSX.Element | null {
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => open({ type: 'settings' })}>
             <Settings className="h-4 w-4" /> Profili düzenle
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => open({ type: 'voiceSettings' })}>
+            <SlidersHorizontal className="h-4 w-4" /> Ses ayarları
           </DropdownMenuItem>
           <DropdownMenuItem danger onSelect={() => void signOut()}>
             <LogOut className="h-4 w-4" /> Çıkış yap

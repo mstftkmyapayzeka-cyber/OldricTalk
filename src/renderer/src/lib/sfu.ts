@@ -41,7 +41,8 @@ function tuneOpus(sdp: string): string {
     stereo: '0',
     maxaveragebitrate: String(OPUS_BITRATE)
   }
-  const line = new RegExp(`^a=fmtp:${pt} (.*)$`, 'm')
+  // Her ses satırına (yayın + çekilen akışlar) uygulanır.
+  const line = new RegExp(`^a=fmtp:${pt} ([^\\r\\n]*)`, 'gm')
   const merge = (params: string): string => {
     const map = new Map(
       params
@@ -53,11 +54,16 @@ function tuneOpus(sdp: string): string {
     for (const [k, v] of Object.entries(want)) map.set(k, v)
     return [...map].map(([k, v]) => `${k}=${v}`).join(';')
   }
-  if (line.test(sdp)) return sdp.replace(line, (_m, params: string) => `a=fmtp:${pt} ${merge(params)}`)
+  if (sdp.match(line)) return sdp.replace(line, (_m, params: string) => `a=fmtp:${pt} ${merge(params)}`)
   return sdp.replace(
-    new RegExp(`^(a=rtpmap:${pt} opus/48000.*)$`, 'im'),
+    new RegExp(`^(a=rtpmap:${pt} opus/48000[^\\r\\n]*)`, 'gim'),
     `$1\r\na=fmtp:${pt} ${merge('')}`
   )
+}
+
+/** SFU'dan gelen her SDP Opus ayarlarıyla uygulanır (sonraki alışverişler ayarı ezmesin). */
+function tuned(d: Sdp): Sdp {
+  return { type: d.type, sdp: tuneOpus(d.sdp) }
 }
 
 async function api<T>(payload: Record<string, unknown>): Promise<T> {
@@ -161,7 +167,7 @@ export class SfuSession {
         tracks: [{ location: 'local', mid: tx.mid, trackName }]
       })
       const answer = res.sessionDescription!
-      await this.pc.setRemoteDescription({ type: answer.type, sdp: tuneOpus(answer.sdp) })
+      await this.pc.setRemoteDescription(tuned(answer))
       const failed = res.tracks?.find((t) => t.errorCode)
       if (failed) throw new Error(failed.errorDescription ?? failed.errorCode)
       // Ses paketleri ağda öncelikli; bit hızı tavanı SDP ile aynı.
@@ -188,7 +194,7 @@ export class SfuSession {
         mids: [mid],
         sessionDescription: this.local()
       })
-      if (res.sessionDescription) await this.pc.setRemoteDescription(res.sessionDescription)
+      if (res.sessionDescription) await this.pc.setRemoteDescription(tuned(res.sessionDescription))
     })
   }
 
@@ -216,7 +222,7 @@ export class SfuSession {
           })
       })
       if (res.requiresImmediateRenegotiation && res.sessionDescription) {
-        await this.pc.setRemoteDescription(res.sessionDescription)
+        await this.pc.setRemoteDescription(tuned(res.sessionDescription))
         await this.pc.setLocalDescription(await this.pc.createAnswer())
         await this.call('renegotiate', { sessionDescription: this.local() })
       }
@@ -235,7 +241,7 @@ export class SfuSession {
       }
       await this.pc.setLocalDescription(await this.pc.createOffer())
       const res = await this.call<TracksResponse>('close', { mids, sessionDescription: this.local() })
-      if (res.sessionDescription) await this.pc.setRemoteDescription(res.sessionDescription)
+      if (res.sessionDescription) await this.pc.setRemoteDescription(tuned(res.sessionDescription))
     })
   }
 

@@ -9,6 +9,10 @@ const stamp = Date.now().toString(36)
 const a = await launch('ayse')
 const b = await launch('mehmet')
 let failed = false
+const denoiseFailed = []
+for (const c of [a, b]) {
+  c.win.on('console', (m) => m.text().includes('[ses]') && denoiseFailed.push(m.text()))
+}
 
 try {
   await step('Giriş', async () => {
@@ -51,7 +55,7 @@ try {
   await step('Ayşe ses kanalına bağlanır; Mehmet kenar çubuğunda görür', async () => {
     await a.win.getByRole('link', { name: 'Genel', exact: true }).click()
     await a.win.getByText('Ses Bağlandı').waitFor({ timeout: T })
-    await b.win.locator('aside').getByText('Ayşe (test)').waitFor({ timeout: T })
+    await b.win.getByRole('list', { name: 'Ses kanalındakiler' }).getByText('Ayşe (test)').waitFor({ timeout: T })
     await shot(dir, b, 'ses-01-kenar-cubugu.png')
   })
 
@@ -74,6 +78,23 @@ try {
     }
     if (info.maxBitrate !== 64000) throw new Error(`maxBitrate beklenmedik: ${info.maxBitrate}`)
     await a.win.getByLabel('Bağlantı kalitesi').getByText(/\d+ ms/).waitFor({ timeout: T })
+  })
+
+  await step('Ses Ayarları: gürültü engelleme yüklü, ölçer çalışıyor', async () => {
+    if (denoiseFailed.length) throw new Error(`RNNoise yüklenemedi: ${denoiseFailed[0]}`)
+    await a.win.getByRole('button', { name: 'Ses Ayarları' }).click()
+    await a.win.getByRole('switch', { name: 'Gürültü engelleme (önerilen)' }).waitFor({ timeout: T })
+    await a.win.getByRole('combobox', { name: 'Mikrofon' }).waitFor({ timeout: T })
+    // Sahte mikrofonun bip sesi ölçeri hareket ettirmeli.
+    await a.win.waitForFunction(
+      () => parseFloat(document.querySelector('[aria-label="Mikrofon seviyesi"] > div')?.style.width ?? '0') > 5,
+      null,
+      { timeout: T }
+    )
+    if (await a.win.getByText('Mikrofon açılamadı').count()) throw new Error('önizleme mikrofonu açılamadı')
+    await shot(dir, a, 'ses-06-ayarlar.png')
+    await a.win.keyboard.press('Escape')
+    if (denoiseFailed.length) throw new Error(`RNNoise yüklenemedi: ${denoiseFailed[0]}`)
   })
 
   await step('Mehmet\'in sesi Ayşe\'ye ulaşır', async () => {
@@ -103,7 +124,7 @@ try {
   await step('Bağlantıyı keser; Mehmet listeden düştüğünü görür', async () => {
     await a.win.getByRole('button', { name: 'Bağlantıyı Kes' }).first().click()
     await b.win
-      .locator('aside')
+      .getByRole('list', { name: 'Ses kanalındakiler' })
       .getByText('Ayşe (test)')
       .waitFor({ state: 'detached', timeout: T })
   })
