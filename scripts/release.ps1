@@ -1,4 +1,4 @@
-# Kurulum dosyasını GitHub Releases'a yayımlar (otomatik güncelleme buradan okur).
+﻿# Kurulum dosyasını GitHub Releases'a yayımlar (otomatik güncelleme buradan okur).
 # Önce: package.json'daki "version" artırılır ve `npm run dist` çalıştırılır.
 # Kullanım: powershell -ExecutionPolicy Bypass -File scripts/release.ps1
 $ErrorActionPreference = 'Stop'
@@ -17,4 +17,6 @@ Kurulu uygulamalar bu sürümü kendiliğinden indirir.
 gh release create "v$version" $exe "$exe.blockmap" dist/latest.yml `
   --repo mstftkmyapayzeka-cyber/OldricTalk --target desktop `
   --title "OldricTalk $version" --notes $notes
+# gh bir dış komut; hata verirse $ErrorActionPreference durdurmaz.
+if ($LASTEXITCODE -ne 0) { throw "gh release create başarısız oldu (çıkış kodu $LASTEXITCODE)." }
 Write-Host "`nYayımlandı: https://github.com/mstftkmyapayzeka-cyber/OldricTalk/releases/tag/v$version" -ForegroundColor Green
