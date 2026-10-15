@@ -1,7 +1,16 @@
 import { useState } from 'react'
 import { errorMessage } from '@/lib/errors'
 import { Button } from './button'
-import { Dialog, DialogBody, DialogContent, DialogFooter, DialogTitle, DialogDescription } from './dialog'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from './dialog'
+import { ErrorBox } from './input'
 
 /** Onay penceresi; onConfirm hata fırlatırsa pencerede gösterilir. */
 export function ConfirmDialog({
@@ -11,6 +20,7 @@ export function ConfirmDialog({
   description,
   confirmLabel = 'Onayla',
   danger = true,
+  confirmDisabled,
   onConfirm,
   children
 }: {
@@ -20,6 +30,8 @@ export function ConfirmDialog({
   description?: React.ReactNode
   confirmLabel?: string
   danger?: boolean
+  /** Ör. en yıkıcı işlemde sunucu adı yazılana kadar. */
+  confirmDisabled?: boolean
   onConfirm: () => Promise<void> | void
   children?: React.ReactNode
 }): React.JSX.Element {
@@ -41,18 +53,26 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent hideClose>
-        <DialogBody className="pt-5">
-          <DialogTitle className="text-xl">{title}</DialogTitle>
-          {description && <DialogDescription asChild><div>{description}</div></DialogDescription>}
+      <DialogContent hideClose className="w-[420px]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          {description && (
+            <DialogDescription asChild>
+              <div className="mt-0 text-body text-text [&_b]:font-semibold [&_b]:text-header">
+                {description}
+              </div>
+            </DialogDescription>
+          )}
           {children}
-          {error && <p className="text-sm text-dnd">{error}</p>}
+          {error && <ErrorBox>{error}</ErrorBox>}
         </DialogBody>
         <DialogFooter>
-          <Button variant="link" className="text-foreground" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
             İptal
           </Button>
-          <Button variant={danger ? 'danger' : 'primary'} disabled={busy} onClick={() => void confirm()}>
+          <Button variant={danger ? 'danger' : 'primary'} disabled={busy || confirmDisabled} onClick={() => void confirm()}>
             {confirmLabel}
           </Button>
         </DialogFooter>

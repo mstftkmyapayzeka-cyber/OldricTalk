@@ -1,16 +1,26 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Hash, Volume2 } from 'lucide-react'
+import { Hash, Trash2, Volume2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { errorMessage } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 import type { Channel, ChannelType, Server } from '@/lib/types'
 import { qk, useChannels } from '@/hooks/queries'
+import { useModal } from '@/stores/modal'
 import { Button } from '@/components/ui/button'
+import { ChoiceCard } from '@/components/ui/choice'
 import { ConfirmDialog } from '@/components/ui/confirm'
-import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Field, Input, Overline } from '@/components/ui/input'
 
 type ModalProps = { onClose: () => void }
 
@@ -59,65 +69,63 @@ export function CreateChannelModal({
     navigate(`/channels/${server.id}/${data.id}`)
   }
 
+  // Yalnızca ses: ses kanalında kamera ve ekran paylaşımı yoktur.
   const types: { id: ChannelType; label: string; desc: string; Icon: typeof Hash }[] = [
-    { id: 'text', label: 'Metin', desc: 'Mesaj, resim, GIF, emoji ve fikir paylaş', Icon: Hash },
-    { id: 'voice', label: 'Ses', desc: 'Sesli, görüntülü ve ekran paylaşımıyla takılın', Icon: Volume2 }
+    { id: 'text', label: 'Metin', desc: 'Mesaj, resim, emoji gönder', Icon: Hash },
+    { id: 'voice', label: 'Ses', desc: 'Sesli konuş', Icon: Volume2 }
   ]
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="w-[420px]">
         <form onSubmit={create}>
-          <DialogHeader className="text-left">
-            <DialogTitle className="text-xl">Kanal Oluştur</DialogTitle>
+          <DialogHeader>
+            <DialogTitle>Kanal Oluştur</DialogTitle>
+            <DialogDescription>{server.name} · yeni kanal</DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <div className="space-y-2">
-              <span className="block text-xs font-bold uppercase text-muted-foreground">Kanal türü</span>
+            <div role="radiogroup" aria-label="Kanal türü" className="flex flex-col gap-2">
+              <Overline>Kanal türü</Overline>
               {types.map(({ id, label, desc, Icon }) => (
-                <button
-                  type="button"
+                <ChoiceCard
                   key={id}
-                  onClick={() => setType(id)}
-                  className={cn(
-                    'flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left',
-                    type === id ? 'bg-selected' : 'bg-sidebar hover:bg-hover'
-                  )}
-                >
-                  <Icon className="h-6 w-6 text-muted-foreground" />
-                  <span className="flex-1">
-                    <span className="block font-medium text-header">{label}</span>
-                    <span className="block text-sm text-muted-foreground">{desc}</span>
-                  </span>
-                  <span
-                    className={cn(
-                      'h-5 w-5 rounded-full border-2',
-                      type === id ? 'border-header bg-header ring-4 ring-inset ring-brand' : 'border-muted-foreground'
-                    )}
-                  />
-                </button>
+                  selected={type === id}
+                  onClick={() => {
+                    setType(id)
+                    setName((n) => normalizeChannelName(n, id))
+                  }}
+                  title={label}
+                  desc={desc}
+                  icon={
+                    <span
+                      className={cn(
+                        'grid h-10 w-10 shrink-0 place-items-center rounded-md',
+                        type === id ? 'bg-brand-soft text-brand' : 'bg-selected text-text'
+                      )}
+                    >
+                      <Icon className="h-5 w-5" />
+                    </span>
+                  }
+                />
               ))}
             </div>
-            <Field label="Kanal adı" error={error}>
-              <div className="relative">
-                {type === 'text' ? (
-                  <Hash className="absolute left-2 top-2.5 h-5 w-5 text-muted-foreground" />
-                ) : (
-                  <Volume2 className="absolute left-2 top-2.5 h-5 w-5 text-muted-foreground" />
-                )}
-                <Input
-                  value={name}
-                  onChange={(e) => setName(normalizeChannelName(e.target.value, type))}
-                  placeholder={type === 'text' ? 'yeni-kanal' : 'Yeni Kanal'}
-                  className="pl-9"
-                  maxLength={100}
-                  autoFocus
-                />
-              </div>
+            <Field
+              label="Kanal adı"
+              error={error}
+              hint={type === 'text' ? 'Küçük harf ve tire kullan; boşluklar tireye dönüşür.' : undefined}
+            >
+              <ChannelNameInput
+                type={type}
+                value={name}
+                onChange={(v) => setName(normalizeChannelName(v, type))}
+                placeholder={type === 'text' ? 'yeni-kanal' : 'Yeni Kanal'}
+                invalid={!!error}
+                autoFocus
+              />
             </Field>
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="link" className="text-foreground" onClick={onClose}>
+            <Button type="button" variant="ghost" onClick={onClose}>
               İptal
             </Button>
             <Button type="submit" disabled={busy || !name.trim()}>
@@ -130,8 +138,44 @@ export function CreateChannelModal({
   )
 }
 
+/** Kanal adı kutusu; içinde # (metin) ya da hoparlör (ses) ön eki. */
+function ChannelNameInput({
+  type,
+  value,
+  onChange,
+  placeholder,
+  invalid,
+  autoFocus
+}: {
+  type: ChannelType
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  invalid?: boolean
+  autoFocus?: boolean
+}): React.JSX.Element {
+  return (
+    <div className="relative flex items-center">
+      <span className="pointer-events-none absolute left-3 text-[14px] leading-5 text-text-muted">
+        {type === 'text' ? '#' : <Volume2 className="h-4 w-4" />}
+      </span>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={type === 'text' ? 'pl-[30px]' : 'pl-9'}
+        maxLength={100}
+        required
+        aria-invalid={invalid}
+        autoFocus={autoFocus}
+      />
+    </div>
+  )
+}
+
 export function EditChannelModal({ channel, onClose }: ModalProps & { channel: Channel }): React.JSX.Element {
   const qc = useQueryClient()
+  const open = useModal((s) => s.open)
   const [name, setName] = useState(channel.name)
   const [topic, setTopic] = useState(channel.topic ?? '')
   const [busy, setBusy] = useState(false)
@@ -158,28 +202,47 @@ export function EditChannelModal({ channel, onClose }: ModalProps & { channel: C
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="w-[420px]">
         <form onSubmit={save}>
-          <DialogHeader className="text-left">
-            <DialogTitle className="text-xl">Kanalı Düzenle</DialogTitle>
+          <DialogHeader>
+            <DialogTitle>Kanalı Düzenle</DialogTitle>
+            <DialogDescription>
+              {channel.type === 'text' ? '# ' : ''}
+              {channel.name}
+            </DialogDescription>
           </DialogHeader>
           <DialogBody>
             <Field label="Kanal adı" error={error}>
-              <Input
+              <ChannelNameInput
+                type={channel.type}
                 value={name}
-                onChange={(e) => setName(normalizeChannelName(e.target.value, channel.type))}
-                maxLength={100}
-                required
+                onChange={(v) => setName(normalizeChannelName(v, channel.type))}
+                invalid={!!error}
               />
             </Field>
             {channel.type === 'text' && (
-              <Field label="Kanal konusu" hint="Kanalın başlığında görünür.">
-                <Input value={topic} onChange={(e) => setTopic(e.target.value)} maxLength={1024} />
+              <Field label="Konu" hint="Kanalın başlığında görünür.">
+                <Input
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  maxLength={1024}
+                  placeholder="Bu kanal ne hakkında?"
+                />
               </Field>
             )}
+            <div className="h-px bg-border" />
+            <div>
+              <Button
+                type="button"
+                variant="dangerGhost"
+                onClick={() => open({ type: 'deleteChannel', channel })}
+              >
+                <Trash2 className="h-4 w-4" /> Kanalı Sil
+              </Button>
+            </div>
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="link" className="text-foreground" onClick={onClose}>
+            <Button type="button" variant="ghost" onClick={onClose}>
               İptal
             </Button>
             <Button type="submit" disabled={busy || !name.trim()}>
@@ -202,8 +265,11 @@ export function DeleteChannelModal({ channel, onClose }: ModalProps & { channel:
       title="Kanalı Sil"
       description={
         <>
-          <b className="text-foreground">#{channel.name}</b> kanalını silmek istediğine emin misin? Bu
-          işlem geri alınamaz.
+          <b>
+            {channel.type === 'text' ? '#' : ''}
+            {channel.name}
+          </b>{' '}
+          kanalını silmek istediğinden emin misin? Kanaldaki tüm mesajlar silinir; bu işlem geri alınamaz.
         </>
       }
       confirmLabel="Kanalı Sil"

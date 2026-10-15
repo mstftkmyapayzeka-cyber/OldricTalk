@@ -1,12 +1,13 @@
 import { NavLink, useMatch, useParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  Check,
   ChevronDown,
+  Copy,
+  DoorOpen,
   Hash,
-  LogOut,
   Pencil,
   Plus,
-  PlusCircle,
   Settings,
   Trash2,
   UserPlus,
@@ -16,8 +17,7 @@ import {
 import { markRead } from '@/lib/actions'
 import { joinVoice } from '@/lib/voice'
 import VoiceChannelMembers from '@/components/voice/VoiceChannelMembers'
-import { cn } from '@/lib/utils'
-import type { Channel, ChannelType, Server } from '@/lib/types'
+import type { Channel, Server } from '@/lib/types'
 import { useChannels } from '@/hooks/queries'
 import { useMembership } from '@/hooks/useMembership'
 import { useUnread } from '@/hooks/useUnread'
@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/menu'
 import { Tooltip } from '@/components/ui/tooltip'
 import UserPanel from '@/components/layout/UserPanel'
+import { Category, rowClass, Sidebar, SidebarHead, UnreadBar } from '@/components/layout/parts'
 
 function ChannelRow({
   channel,
@@ -67,29 +68,27 @@ function ChannelRow({
           onClick={() => {
             if (channel.type === 'voice') void joinVoice(channel, serverName)
           }}
-          className={cn(
-            'group relative flex h-8 items-center gap-1.5 rounded-md px-2',
-            isActive
-              ? 'bg-selected text-header'
-              : unread
-                ? 'text-header hover:bg-hover'
-                : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-          )}
+          className={rowClass({ active: isActive, unread, className: 'h-row' })}
         >
-          {unread && <span className="absolute -left-2 h-2 w-1 rounded-r-full bg-header" />}
-          <Icon className="h-5 w-5 shrink-0 opacity-70" />
-          <span className={cn('flex-1 truncate', unread && 'font-semibold')}>{channel.name}</span>
+          {unread && <UnreadBar />}
+          <Icon
+            className={
+              isActive || unread ? 'h-[17px] w-[17px] shrink-0 text-text' : 'h-[17px] w-[17px] shrink-0 text-text-muted'
+            }
+          />
+          <span className="min-w-0 flex-1 truncate">{channel.name}</span>
           {canManage && (
             <Tooltip label="Kanalı Düzenle">
               <span
                 role="button"
+                aria-label="Kanalı Düzenle"
                 onClick={(e) => {
                   e.preventDefault()
                   open({ type: 'editChannel', channel })
                 }}
-                className="hidden text-muted-foreground hover:text-header group-hover:block"
+                className="hidden shrink-0 text-text-muted hover:text-header group-hover:block"
               >
-                <Settings className="h-4 w-4" />
+                <Settings className="h-3.5 w-3.5" />
               </span>
             </Tooltip>
           )}
@@ -98,61 +97,25 @@ function ChannelRow({
       <ContextMenuContent>
         {channel.type === 'text' && (
           <ContextMenuItem onSelect={() => void markRead(qc, me, channel.id)}>
-            Okundu olarak işaretle
+            <Check /> Okundu olarak işaretle
           </ContextMenuItem>
         )}
+        <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(channel.id)}>
+          <Copy /> Kanal kimliğini kopyala
+        </ContextMenuItem>
         {canManage && (
           <>
             <ContextMenuItem onSelect={() => open({ type: 'editChannel', channel })}>
-              <Pencil className="h-4 w-4" /> Kanalı düzenle
+              <Pencil /> Kanalı düzenle
             </ContextMenuItem>
+            <ContextMenuSeparator />
             <ContextMenuItem danger onSelect={() => open({ type: 'deleteChannel', channel })}>
-              <Trash2 className="h-4 w-4" /> Kanalı sil
+              <Trash2 /> Kanalı sil
             </ContextMenuItem>
           </>
         )}
-        <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(channel.id)}>
-          Kanal kimliğini kopyala
-        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  )
-}
-
-function Section({
-  label,
-  type,
-  server,
-  canManage,
-  children
-}: {
-  label: string
-  type: ChannelType
-  server: Server
-  canManage: boolean
-  children: React.ReactNode
-}): React.JSX.Element {
-  const open = useModal((s) => s.open)
-  return (
-    <div className="pt-4">
-      <div className="group flex items-center px-0.5 pb-1">
-        <span className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground group-hover:text-foreground">
-          {label}
-        </span>
-        {canManage && (
-          <Tooltip label="Kanal Oluştur">
-            <button
-              onClick={() => open({ type: 'createChannel', server, channelType: type })}
-              className="text-muted-foreground hover:text-header"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          </Tooltip>
-        )}
-      </div>
-      <div className="space-y-0.5">{children}</div>
-    </div>
   )
 }
 
@@ -169,71 +132,76 @@ export default function ServerSidebar({ server }: { server: Server }): React.JSX
   const voice = channels.filter((c) => c.type === 'voice')
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col bg-sidebar">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="flex h-12 shrink-0 items-center border-b border-black/30 px-4 font-semibold text-header shadow-sm transition hover:bg-hover focus:outline-none">
-            <span className="flex-1 truncate text-left">{server.name}</span>
-            <ChevronDown className="h-5 w-5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-[220px]" align="center">
-          <DropdownMenuItem
-            className="text-[hsl(255_100%_80%)]"
-            onSelect={() => open({ type: 'invite', server })}
-          >
-            <UserPlus className="h-4 w-4" /> İnsanları Davet Et
-          </DropdownMenuItem>
-          {isAdmin && (
-            <DropdownMenuItem onSelect={() => open({ type: 'editServer', server })}>
-              <Settings className="h-4 w-4" /> Sunucu Ayarları
+    <Sidebar>
+      <SidebarHead>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex w-full min-w-0 items-center gap-1 rounded-sm p-1 text-left text-[15px] font-bold leading-5 text-header transition-colors duration-fast hover:bg-hover data-[state=open]:bg-hover">
+              <span className="min-w-0 flex-1 truncate">{server.name}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-text-muted" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-[236px]" align="start" sideOffset={8}>
+            <DropdownMenuItem onSelect={() => open({ type: 'invite', server })}>
+              <UserPlus /> İnsanları Davet Et
             </DropdownMenuItem>
-          )}
-          {isModerator && (
-            <DropdownMenuItem onSelect={() => open({ type: 'members', server })}>
-              <Users className="h-4 w-4" /> Üyeleri Yönet
-            </DropdownMenuItem>
-          )}
-          {isModerator && (
-            <DropdownMenuItem onSelect={() => open({ type: 'createChannel', server })}>
-              <PlusCircle className="h-4 w-4" /> Kanal Oluştur
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          {isOwner ? (
-            <DropdownMenuItem danger onSelect={() => open({ type: 'deleteServer', server })}>
-              <Trash2 className="h-4 w-4" /> Sunucuyu Sil
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem danger onSelect={() => open({ type: 'leaveServer', server })}>
-              <LogOut className="h-4 w-4" /> Sunucudan Ayrıl
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            {isAdmin && (
+              <DropdownMenuItem onSelect={() => open({ type: 'editServer', server })}>
+                <Settings /> Sunucu Ayarları
+              </DropdownMenuItem>
+            )}
+            {isModerator && (
+              <DropdownMenuItem onSelect={() => open({ type: 'createChannel', server })}>
+                <Plus /> Kanal Oluştur
+              </DropdownMenuItem>
+            )}
+            {isModerator && (
+              <DropdownMenuItem onSelect={() => open({ type: 'members', server })}>
+                <Users /> Üyeleri Yönet
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            {isOwner ? (
+              <DropdownMenuItem danger onSelect={() => open({ type: 'deleteServer', server })}>
+                <Trash2 /> Sunucuyu Sil
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem danger onSelect={() => open({ type: 'leaveServer', server })}>
+                <DoorOpen /> Sunucudan Ayrıl
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarHead>
 
-      <div className="thin-scroll flex-1 overflow-y-auto px-2 pb-4">
-        <Section label="Metin Kanalları" type="text" server={server} canManage={isModerator}>
-          {text.map((c) => (
-            <ChannelRow
-              key={c.id}
-              channel={c}
-              serverName={server.name}
-              unread={channelUnread.has(c.id) && c.id !== channelId}
-              canManage={isModerator}
-            />
-          ))}
-        </Section>
-        <Section label="Ses Kanalları" type="voice" server={server} canManage={isModerator}>
-          {voice.map((c) => (
-            <div key={c.id}>
-              <ChannelRow channel={c} serverName={server.name} unread={false} canManage={isModerator} />
-              <VoiceChannelMembers serverId={server.id} channelId={c.id} />
-            </div>
-          ))}
-        </Section>
-      </div>
+      <nav aria-label="Kanallar" className="thin-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-4">
+        <Category
+          label="Metin Kanalları"
+          addLabel={isModerator ? 'Kanal Oluştur' : undefined}
+          onAdd={() => open({ type: 'createChannel', server, channelType: 'text' })}
+        />
+        {text.map((c) => (
+          <ChannelRow
+            key={c.id}
+            channel={c}
+            serverName={server.name}
+            unread={channelUnread.has(c.id) && c.id !== channelId}
+            canManage={isModerator}
+          />
+        ))}
+        <Category
+          label="Ses Kanalları"
+          addLabel={isModerator ? 'Kanal Oluştur' : undefined}
+          onAdd={() => open({ type: 'createChannel', server, channelType: 'voice' })}
+        />
+        {voice.map((c) => (
+          <div key={c.id}>
+            <ChannelRow channel={c} serverName={server.name} unread={false} canManage={isModerator} />
+            <VoiceChannelMembers serverId={server.id} channelId={c.id} />
+          </div>
+        ))}
+      </nav>
       <UserPanel />
-    </aside>
+    </Sidebar>
   )
 }

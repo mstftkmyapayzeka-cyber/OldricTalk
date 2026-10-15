@@ -10,14 +10,17 @@ function render(nodes: MdNode[], myUsername: string | undefined): React.ReactNod
       case 'br':
         return <br key={i} />
       case 'bold':
-        return <strong key={i}>{render(n.c, myUsername)}</strong>
+        return <strong key={i} className="font-semibold">{render(n.c, myUsername)}</strong>
       case 'italic':
         return <em key={i}>{render(n.c, myUsername)}</em>
       case 'strike':
         return <s key={i}>{render(n.c, myUsername)}</s>
       case 'code':
         return (
-          <code key={i} className="rounded bg-floating px-1 py-0.5 font-mono text-[13px]">
+          <code
+            key={i}
+            className="rounded-xs border border-border bg-input px-[5px] py-px font-mono text-[13px] leading-[19px]"
+          >
             {n.v}
           </code>
         )
@@ -25,32 +28,27 @@ function render(nodes: MdNode[], myUsername: string | undefined): React.ReactNod
         return (
           <pre
             key={i}
-            className="my-1 max-w-[90%] overflow-x-auto rounded border border-black/40 bg-sidebar p-2 font-mono text-[13px] leading-snug"
+            className="my-1 max-w-[90%] overflow-x-auto rounded-md border border-border bg-input px-3 py-2 font-mono text-[13px] leading-[19px] text-text"
           >
             {n.v}
           </pre>
         )
       case 'link':
         return (
-          <a
-            key={i}
-            href={n.href}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="text-[hsl(200_100%_65%)] hover:underline"
-          >
+          <a key={i} href={n.href} target="_blank" rel="noreferrer noopener" className="text-link hover:underline">
             {n.href}
           </a>
         )
       case 'mention':
+        // Bahsetme: brand-soft zemin + brand metin; beni anan bahsetme bir ton koyu.
         return (
           <span
             key={i}
             className={cn(
-              'rounded px-0.5 font-medium',
+              'rounded-xs px-[3px] font-semibold',
               n.username === myUsername || n.username === 'everyone'
-                ? 'bg-brand/30 text-header'
-                : 'bg-brand/15 text-[hsl(255_100%_85%)]'
+                ? 'bg-brand text-on-brand'
+                : 'bg-brand-soft text-brand'
             )}
           >
             @{n.username}

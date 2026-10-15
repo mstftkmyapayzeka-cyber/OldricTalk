@@ -1,17 +1,51 @@
 import { useMemo, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import { Hash, Users, Volume2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Hash, PanelRightClose, PanelRightOpen, Settings, UserPlus, Volume2 } from 'lucide-react'
 import type { ChatTarget } from '@/lib/types'
+import { useVoice } from '@/lib/voice'
+import { cn } from '@/lib/utils'
 import { useChannels, useMyProfile, useServer } from '@/hooks/queries'
 import { useMembership } from '@/hooks/useMembership'
+import { useModal } from '@/stores/modal'
+import { GRADE, grade } from '@/components/voice/VoicePanel'
 import { Spinner } from '@/components/ui/spinner'
-import { Tooltip } from '@/components/ui/tooltip'
+import { IconButton } from '@/components/ui/icon-button'
+import { TopBar, TopBarSep, TopBarSub, TopBarTitle, useMinWidth } from '@/components/layout/parts'
 import ChatView from '@/components/chat/ChatView'
 import MemberList from '@/components/server/MemberList'
 import VoiceRoom from '@/components/voice/VoiceRoom'
 
 const MEMBERS_KEY = 'oldrictalk-show-members'
+
+/** Kanal başındaki karşılama bloğu; yalnızca kanalın ilk mesajından önce görünür. */
+export function ChannelWelcome({ name }: { name: string }): React.JSX.Element {
+  return (
+    <div className="mt-auto px-4 pb-4 pt-8">
+      <div className="mb-4 grid h-[68px] w-[68px] place-items-center rounded-full bg-selected text-header">
+        <Hash className="h-9 w-9" />
+      </div>
+      <h2 className="text-title-lg text-header">#{name} kanalına hoş geldin!</h2>
+      <p className="mt-2 text-body text-text-muted">Bu, #{name} kanalının başlangıcı. İlk mesajı sen yaz.</p>
+    </div>
+  )
+}
+
+/** Ses kanalı üst çubuğu: bağlıyken kalite (ikon + renk + söz), değilken kanal türü. */
+function VoiceTopBarStatus({ channelId, serverName }: { channelId: string; serverName: string }): React.JSX.Element {
+  const v = useVoice()
+  if (v.channelId !== channelId || v.status !== 'connected' || v.quality?.rtt == null) {
+    return <TopBarSub>Ses kanalı · {serverName}</TopBarSub>
+  }
+  const g = GRADE[grade(v.quality)]
+  return (
+    <span className="flex min-w-0 items-center gap-[5px]">
+      <g.Icon className={cn('h-4 w-4 shrink-0', g.color)} />
+      <TopBarSub>
+        {g.label} · {v.quality.rtt} ms
+      </TopBarSub>
+    </span>
+  )
+}
 
 export default function ChannelPage(): React.JSX.Element {
   const { serverId = '', channelId = '' } = useParams()
@@ -19,7 +53,13 @@ export default function ChannelPage(): React.JSX.Element {
   const { data: channels, isLoading } = useChannels(serverId)
   const { data: me } = useMyProfile()
   const { members, isModerator, roles } = useMembership(serverId)
+  const openModal = useModal((s) => s.open)
+  // Geniş pencerede kullanıcının tercihi saklanır; < 1100px'te liste kendiliğinden
+  // gizlenir ve yalnızca bu oturum için elle açılabilir.
+  const wide = useMinWidth(1100)
   const [showMembers, setShowMembers] = useState(() => localStorage.getItem(MEMBERS_KEY) !== '0')
+  const [narrowOpen, setNarrowOpen] = useState(false)
+  const membersOpen = wide ? showMembers : narrowOpen
   const channel = channels?.find((c) => c.id === channelId)
   const target = useMemo<ChatTarget>(
     () => ({ kind: 'channel', id: channelId, serverId }),
@@ -29,61 +69,70 @@ export default function ChannelPage(): React.JSX.Element {
   if (isLoading || !me || !server) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <Spinner />
+        <Spinner size="md" />
       </div>
     )
   }
   if (!channel) return <Navigate to={`/channels/${serverId}`} replace />
 
-  const Icon = channel.type === 'text' ? Hash : Volume2
+  function toggleMembers(): void {
+    if (!wide) return setNarrowOpen(!narrowOpen)
+    localStorage.setItem(MEMBERS_KEY, showMembers ? '0' : '1')
+    setShowMembers(!showMembers)
+  }
 
   return (
     <>
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-black/30 px-4 shadow-sm">
-        <Icon className="h-6 w-6 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 font-semibold text-header">{channel.name}</span>
+      <TopBar>
+        <TopBarTitle icon={channel.type === 'text' ? <Hash /> : <Volume2 />}>{channel.name}</TopBarTitle>
         {channel.topic && (
           <>
-            <div className="mx-2 h-6 w-px shrink-0 bg-border" />
-            <span className="truncate text-sm text-muted-foreground">{channel.topic}</span>
+            <TopBarSep />
+            <TopBarSub title={channel.topic}>{channel.topic}</TopBarSub>
           </>
         )}
-        <div className={cn('ml-auto flex items-center gap-4', channel.type !== 'text' && 'hidden')}>
-          <Tooltip label={showMembers ? 'Üye Listesini Gizle' : 'Üye Listesini Göster'}>
-            <button
-              onClick={() => {
-                localStorage.setItem(MEMBERS_KEY, showMembers ? '0' : '1')
-                setShowMembers(!showMembers)
-              }}
-              className={cn('hover:text-header', showMembers ? 'text-header' : 'text-muted-foreground')}
-            >
-              <Users className="h-6 w-6" />
-            </button>
-          </Tooltip>
-        </div>
-      </header>
+        {channel.type === 'voice' && (
+          <>
+            <TopBarSep />
+            <VoiceTopBarStatus channelId={channel.id} serverName={server.name} />
+          </>
+        )}
+        <div className="flex-1" />
+        {channel.type === 'voice' && (
+          <IconButton label="İnsanları Davet Et" onClick={() => openModal({ type: 'invite', server })}>
+            <UserPlus />
+          </IconButton>
+        )}
+        {channel.type === 'voice' && isModerator && (
+          <IconButton label="Kanalı Düzenle" onClick={() => openModal({ type: 'editChannel', channel })}>
+            <Settings />
+          </IconButton>
+        )}
+        {channel.type === 'text' && (
+          <IconButton
+            label={membersOpen ? 'Üye listesini gizle' : 'Üye listesini göster'}
+            active={membersOpen}
+            onClick={toggleMembers}
+          >
+            {membersOpen ? <PanelRightClose /> : <PanelRightOpen />}
+          </IconButton>
+        )}
+      </TopBar>
       <div className="flex min-h-0 flex-1">
         {channel.type === 'text' ? (
           <ChatView
             target={target}
             me={me}
             placeholder={`#${channel.name} kanalına mesaj gönder`}
+            dropTarget={`#${channel.name} kanalına`}
             canModerate={isModerator}
             roles={roles}
-            welcome={
-              <div className="m-4 mt-auto pt-16">
-                <div className="flex h-[68px] w-[68px] items-center justify-center rounded-full bg-selected">
-                  <Hash className="h-10 w-10 text-header" />
-                </div>
-                <h2 className="mt-2 text-3xl font-bold text-header">#{channel.name} kanalına hoş geldin!</h2>
-                <p className="mt-1 text-muted-foreground">Bu, #{channel.name} kanalının başlangıcı.</p>
-              </div>
-            }
+            welcome={<ChannelWelcome name={channel.name} />}
           />
         ) : (
           <VoiceRoom channel={channel} server={server} />
         )}
-        {showMembers && channel.type === 'text' && <MemberList members={members} server={server} />}
+        {membersOpen && channel.type === 'text' && <MemberList members={members} server={server} />}
       </div>
     </>
   )

@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronRight, Copy, RefreshCw } from 'lucide-react'
+import { Check, Copy, DoorOpen, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { errorMessage } from '@/lib/errors'
 import { inviteLink, parseInvite } from '@/lib/invite'
 import { uploadFile } from '@/lib/upload'
+import { colorFor, initials } from '@/lib/utils'
 import type { Server } from '@/lib/types'
 import { qk, useMyProfile } from '@/hooks/queries'
 import { useMembership } from '@/hooks/useMembership'
 import { useUserId } from '@/stores/auth'
+import { useModal } from '@/stores/modal'
 import { Button } from '@/components/ui/button'
+import { ChoiceCard } from '@/components/ui/choice'
 import {
   Dialog,
   DialogBody,
@@ -21,12 +24,27 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/ui/confirm'
-import { Field, Input } from '@/components/ui/input'
+import { ErrorBox, Field, Input, Overline } from '@/components/ui/input'
 import ImagePicker from './ImagePicker'
 
 type ModalProps = { onClose: () => void }
 
+/** Sunucu simgesi ya da baş harfleri (kişi renkleri gibi sabit renk). */
+function ServerIcon({ server, size }: { server: Server; size: number }): React.JSX.Element {
+  return server.icon_url ? (
+    <img src={server.icon_url} alt="" className="shrink-0 rounded-xl object-cover" style={{ width: size, height: size }} />
+  ) : (
+    <span
+      className="grid shrink-0 place-items-center rounded-xl font-bold text-on-avatar"
+      style={{ width: size, height: size, background: colorFor(server.id), fontSize: Math.round(size * 0.31) }}
+    >
+      {initials(server.name)}
+    </span>
+  )
+}
+
 // ---------------------------------------------------------------- sunucu ekle
+// Üç adım: seçim → özelleştir / davetle katıl. Akış her zaman geri gidilebilir.
 export function AddServerModal({ onClose }: ModalProps): React.JSX.Element {
   const [view, setView] = useState<'choose' | 'create' | 'join'>('choose')
   const { data: me } = useMyProfile()
@@ -38,6 +56,11 @@ export function AddServerModal({ onClose }: ModalProps): React.JSX.Element {
   const [invite, setInvite] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  function go(next: typeof view): void {
+    setError(null)
+    setView(next)
+  }
 
   async function create(e: React.FormEvent): Promise<void> {
     e.preventDefault()
@@ -65,7 +88,7 @@ export function AddServerModal({ onClose }: ModalProps): React.JSX.Element {
     e.preventDefault()
     const code = parseInvite(invite)
     if (!code) {
-      setError('Geçerli bir davet bağlantısı ya da kodu girin.')
+      setError('Geçerli bir davet bağlantısı ya da kodu gir.')
       return
     }
     setBusy(true)
@@ -84,32 +107,34 @@ export function AddServerModal({ onClose }: ModalProps): React.JSX.Element {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="w-[420px]">
         {view === 'choose' && (
           <>
             <DialogHeader>
-              <DialogTitle>Sunucunu oluştur</DialogTitle>
+              <DialogTitle>Sunucu Ekle</DialogTitle>
               <DialogDescription>
-                Sunucun, sen ve arkadaşlarının takıldığı yerdir. Kendi sunucunu oluştur ve
-                konuşmaya başla.
+                Sunucun arkadaşlarınla takıldığın yerdir. Kendi sunucunu kur ya da bir davetle katıl.
               </DialogDescription>
             </DialogHeader>
             <DialogBody>
-              <button
-                onClick={() => setView('create')}
-                className="flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left font-semibold text-header hover:bg-hover"
-              >
-                <span className="text-2xl">🏰</span>
-                <span className="flex-1">Kendi sunucumu oluştur</span>
-                <ChevronRight className="h-5 w-5" />
-              </button>
+              <ChoiceCard
+                icon={
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand text-on-brand">
+                    <Plus className="h-6 w-6" />
+                  </span>
+                }
+                title="Kendi sunucumu oluştur"
+                desc="Bir dakikada kur, arkadaşlarını davet et."
+                onClick={() => go('create')}
+              />
+              <div className="h-px bg-border" />
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-meta text-text-muted">Zaten bir davetin var mı?</span>
+                <Button variant="secondary" className="w-full" onClick={() => go('join')}>
+                  Bir Sunucuya Katıl
+                </Button>
+              </div>
             </DialogBody>
-            <DialogFooter className="flex-col items-stretch gap-2 text-center">
-              <p className="text-lg font-semibold text-header">Zaten bir davetin var mı?</p>
-              <Button variant="secondary" onClick={() => setView('join')}>
-                Bir Sunucuya Katıl
-              </Button>
-            </DialogFooter>
           </>
         )}
 
@@ -118,18 +143,26 @@ export function AddServerModal({ onClose }: ModalProps): React.JSX.Element {
             <DialogHeader>
               <DialogTitle>Sunucunu özelleştir</DialogTitle>
               <DialogDescription>
-                Yeni sunucuna bir ad ve simge vererek ona kişilik kazandır. Bunları daha sonra
-                değiştirebilirsin.
+                Yeni sunucuna bir ad ve simge vererek ona kişilik kazandır. Sonradan değiştirebilirsin.
               </DialogDescription>
             </DialogHeader>
-            <DialogBody>
-              <ImagePicker file={icon} onPick={setIcon} />
+            <DialogBody className="space-y-5">
+              <div className="flex justify-center">
+                <ImagePicker file={icon} onPick={setIcon} ariaLabel="Sunucu simgesi yükle" />
+              </div>
               <Field label="Sunucu adı" error={error}>
-                <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={100}
+                  required
+                  autoFocus
+                  aria-invalid={!!error}
+                />
               </Field>
             </DialogBody>
-            <DialogFooter className="justify-between">
-              <Button type="button" variant="link" className="text-foreground" onClick={() => setView('choose')}>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => go('choose')}>
                 Geri
               </Button>
               <Button type="submit" disabled={busy || name.trim().length < 2}>
@@ -143,7 +176,7 @@ export function AddServerModal({ onClose }: ModalProps): React.JSX.Element {
           <form onSubmit={join}>
             <DialogHeader>
               <DialogTitle>Bir Sunucuya Katıl</DialogTitle>
-              <DialogDescription>Mevcut bir sunucuya katılmak için davetini gir.</DialogDescription>
+              <DialogDescription>Arkadaşından aldığın davet bağlantısını ya da kodu yapıştır.</DialogDescription>
             </DialogHeader>
             <DialogBody>
               <Field
@@ -151,15 +184,22 @@ export function AddServerModal({ onClose }: ModalProps): React.JSX.Element {
                 error={error}
                 hint={
                   <>
-                    Örnek: <code>{inviteLink('a1b2c3d4e5f6')}</code> ya da <code>a1b2c3d4e5f6</code>
+                    Örnek: <span className="font-mono">{inviteLink('a1b2c3d4e5f6')}</span> ya da{' '}
+                    <span className="font-mono">a1b2c3d4e5f6</span>
                   </>
                 }
               >
-                <Input value={invite} onChange={(e) => setInvite(e.target.value)} required autoFocus />
+                <Input
+                  value={invite}
+                  onChange={(e) => setInvite(e.target.value)}
+                  required
+                  autoFocus
+                  aria-invalid={!!error}
+                />
               </Field>
             </DialogBody>
-            <DialogFooter className="justify-between">
-              <Button type="button" variant="link" className="text-foreground" onClick={() => setView('choose')}>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => go('choose')}>
                 Geri
               </Button>
               <Button type="submit" disabled={busy || !invite.trim()}>
@@ -174,6 +214,42 @@ export function AddServerModal({ onClose }: ModalProps): React.JSX.Element {
 }
 
 // ---------------------------------------------------------------- davet
+/** Kopyalandıktan sonra düğme 2 saniye online / "Kopyalandı" olur. */
+function CopyRow({
+  label,
+  value,
+  mono,
+  copied,
+  onCopy
+}: {
+  label: string
+  value: string
+  mono?: boolean
+  copied: boolean
+  onCopy: () => void
+}): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        role="textbox"
+        aria-readonly
+        aria-label={label}
+        className={
+          mono
+            ? 'selectable min-w-0 flex-1 truncate rounded-md border border-border-strong bg-input px-4 py-3 font-mono text-[18px] font-medium leading-6 tracking-[0.08em] text-header'
+            : 'selectable min-w-0 flex-1 truncate rounded-md border border-border-strong bg-input px-4 py-3 font-mono text-[14px] leading-6 text-header'
+        }
+      >
+        {value}
+      </div>
+      <Button variant={copied ? 'success' : 'primary'} onClick={onCopy} className="w-[124px]">
+        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        {copied ? 'Kopyalandı' : 'Kopyala'}
+      </Button>
+    </div>
+  )
+}
+
 export function InviteModal({ server, onClose }: ModalProps & { server: Server }): React.JSX.Element {
   const qc = useQueryClient()
   const { isModerator } = useMembership(server.id)
@@ -184,7 +260,7 @@ export function InviteModal({ server, onClose }: ModalProps & { server: Server }
   function copy(what: 'link' | 'code'): void {
     void navigator.clipboard.writeText(what === 'link' ? inviteLink(code) : code)
     setCopied(what)
-    setTimeout(() => setCopied(null), 1500)
+    setTimeout(() => setCopied((c) => (c === what ? null : c)), 2000)
   }
 
   async function regenerate(): Promise<void> {
@@ -194,43 +270,38 @@ export function InviteModal({ server, onClose }: ModalProps & { server: Server }
       return
     }
     setCode(data)
+    setCopied(null)
     void qc.invalidateQueries({ queryKey: qk.server(server.id) })
   }
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
-        <DialogHeader className="text-left">
-          <DialogTitle className="text-base">Arkadaşlarını {server.name} sunucusuna davet et</DialogTitle>
+        <DialogHeader>
+          <DialogTitle>Arkadaşlarını Davet Et</DialogTitle>
+          <DialogDescription>{server.name} sunucusuna katılmaları için bu kodu paylaş.</DialogDescription>
         </DialogHeader>
-        <DialogBody>
-          <Field label="Davet bağlantısı">
-            <div className="flex items-center rounded-sm bg-floating p-1 pl-3">
-              <span className="flex-1 truncate text-sm text-header">{inviteLink(code)}</span>
-              <Button size="sm" variant={copied === 'link' ? 'success' : 'primary'} onClick={() => copy('link')}>
-                {copied === 'link' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                {copied === 'link' ? 'Kopyalandı' : 'Kopyala'}
-              </Button>
-            </div>
-          </Field>
-          <Field label="Davet kodu">
-            <div className="flex items-center rounded-sm bg-floating p-1 pl-3">
-              <span className="flex-1 font-mono text-header">{code}</span>
-              <Button size="sm" variant="secondary" onClick={() => copy('code')}>
-                {copied === 'code' ? 'Kopyalandı' : 'Kopyala'}
-              </Button>
-            </div>
-          </Field>
-          {isModerator && (
-            <button
-              onClick={() => void regenerate()}
-              className="flex items-center gap-1 text-xs text-[hsl(200_100%_65%)] hover:underline"
-            >
-              <RefreshCw className="h-3 w-3" /> Yeni bağlantı oluştur (eskisi geçersiz olur)
-            </button>
-          )}
-          {error && <p className="text-sm text-dnd">{error}</p>}
+        <DialogBody className="space-y-3">
+          <CopyRow label="Davet kodu" value={code} mono copied={copied === 'code'} onCopy={() => copy('code')} />
+          <CopyRow
+            label="Davet bağlantısı"
+            value={inviteLink(code)}
+            copied={copied === 'link'}
+            onCopy={() => copy('link')}
+          />
+          {error && <ErrorBox>{error}</ErrorBox>}
         </DialogBody>
+        <DialogFooter>
+          {isModerator && (
+            <Button variant="ghost" onClick={() => void regenerate()} title="Eski kod geçersiz olur">
+              <RotateCcw className="h-4 w-4" /> Yeni kod oluştur
+            </Button>
+          )}
+          <div className="flex-1" />
+          <Button variant="secondary" onClick={onClose}>
+            Bitti
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -240,6 +311,8 @@ export function InviteModal({ server, onClose }: ModalProps & { server: Server }
 export function EditServerModal({ server, onClose }: ModalProps & { server: Server }): React.JSX.Element {
   const qc = useQueryClient()
   const me = useUserId()
+  const open = useModal((s) => s.open)
+  const isOwner = server.owner_id === me
   const [name, setName] = useState(server.name)
   const [icon, setIcon] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
@@ -266,19 +339,56 @@ export function EditServerModal({ server, onClose }: ModalProps & { server: Serv
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
+      <DialogContent className="w-modal-lg">
         <form onSubmit={save}>
           <DialogHeader>
             <DialogTitle>Sunucu Ayarları</DialogTitle>
+            <DialogDescription>{server.name}</DialogDescription>
           </DialogHeader>
-          <DialogBody>
-            <ImagePicker file={icon} currentUrl={server.icon_url} onPick={setIcon} />
-            <Field label="Sunucu adı" error={error}>
-              <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required />
-            </Field>
+          <DialogBody className="space-y-5">
+            <div className="flex items-start gap-5">
+              <div className="flex flex-col items-center gap-2">
+                <ImagePicker
+                  file={icon}
+                  currentUrl={server.icon_url}
+                  onPick={setIcon}
+                  shape="rounded"
+                  ariaLabel="Simgeyi değiştir"
+                  fallback={<ServerIcon server={server} size={96} />}
+                />
+                <span className="text-meta text-text-muted">Değiştirmek için tıkla</span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <Field label="Sunucu adı" error={error}>
+                  <Input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={100}
+                    required
+                    aria-invalid={!!error}
+                  />
+                </Field>
+              </div>
+            </div>
+            <div className="h-px bg-border" />
+            {/* Tehlikeli alan: düğmeler asla birincil gibi görünmez; ikisi de onay penceresi açar. */}
+            <div className="flex flex-col gap-2">
+              <Overline>Tehlikeli alan</Overline>
+              <div className="flex gap-2">
+                {isOwner ? (
+                  <Button type="button" variant="danger" onClick={() => open({ type: 'deleteServer', server })}>
+                    <Trash2 className="h-4 w-4" /> Sunucuyu Sil
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" onClick={() => open({ type: 'leaveServer', server })}>
+                    <DoorOpen className="h-4 w-4" /> Sunucudan Ayrıl
+                  </Button>
+                )}
+              </div>
+            </div>
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="link" className="text-foreground" onClick={onClose}>
+            <Button type="button" variant="ghost" onClick={onClose}>
               İptal
             </Button>
             <Button type="submit" disabled={busy || name.trim().length < 2}>
@@ -300,22 +410,24 @@ export function DeleteServerModal({ server, onClose }: ModalProps & { server: Se
     <ConfirmDialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={`'${server.name}' sunucusunu sil`}
-      description="Bu işlem geri alınamaz. Tüm kanallar ve mesajlar kalıcı olarak silinir."
+      title="Sunucuyu Sil"
       confirmLabel="Sunucuyu Sil"
+      // En yıkıcı işlem: düğme sunucu adı yazılana kadar devre dışı.
+      confirmDisabled={typed.trim() !== server.name}
       onConfirm={async () => {
-        if (typed.trim() !== server.name) throw new Error('Sunucu adını doğru yazmadın.')
         const { error } = await supabase.rpc('delete_server', { p_server: server.id })
         if (error) throw error
         navigate('/channels/@me')
         await qc.invalidateQueries({ queryKey: qk.servers })
       }}
     >
-      <div className="mt-4">
-        <Field label="Onaylamak için sunucu adını yaz">
-          <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
-        </Field>
-      </div>
+      <ErrorBox>
+        <b className="font-semibold text-header">{server.name}</b> sunucusunu silmek üzeresin. Tüm kanallar ve
+        mesajlar kalıcı olarak silinir; bu işlem geri alınamaz.
+      </ErrorBox>
+      <Field label="Onaylamak için sunucu adını yaz">
+        <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={server.name} autoFocus />
+      </Field>
     </ConfirmDialog>
   )
 }
@@ -327,20 +439,22 @@ export function LeaveServerModal({ server, onClose }: ModalProps & { server: Ser
     <ConfirmDialog
       open
       onOpenChange={(o) => !o && onClose()}
-      title={`'${server.name}' sunucusundan ayrıl`}
-      description={
-        <>
-          <b className="text-foreground">{server.name}</b> sunucusundan ayrılmak istediğine emin misin?
-          Yeniden davet edilmedikçe katılamazsın.
-        </>
-      }
-      confirmLabel="Sunucudan Ayrıl"
+      title="Sunucudan Ayrıl"
+      confirmLabel="Ayrıl"
       onConfirm={async () => {
         const { error } = await supabase.rpc('leave_server', { p_server: server.id })
         if (error) throw error
         navigate('/channels/@me')
         await qc.invalidateQueries({ queryKey: qk.servers })
       }}
-    />
+    >
+      <div className="flex items-start gap-3 text-body text-text">
+        <ServerIcon server={server} size={48} />
+        <span>
+          <b className="font-semibold text-header">{server.name}</b> sunucusundan ayrılmak istediğinden emin misin?
+          Yeniden katılmak için davet gerekir.
+        </span>
+      </div>
+    </ConfirmDialog>
   )
 }

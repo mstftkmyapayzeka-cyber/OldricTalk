@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { FileText, PlusCircle, X } from 'lucide-react'
+import { Ban, FileText, Plus, X } from 'lucide-react'
 import { sendMessage } from '@/lib/actions'
 import { errorMessage } from '@/lib/errors'
 import { sendTyping } from '@/lib/realtime'
@@ -9,6 +9,9 @@ import { formatBytes } from '@/lib/utils'
 import { LIMITS } from '@/lib/config'
 import type { ChatTarget, ProfileLite } from '@/lib/types'
 import { Spinner } from '@/components/ui/spinner'
+import { IconButton } from '@/components/ui/icon-button'
+import { ErrorBox } from '@/components/ui/input'
+import { Tooltip } from '@/components/ui/tooltip'
 import EmojiPicker from './EmojiPicker'
 
 export type ComposerHandle = { attach: (file: File) => void; focus: () => void }
@@ -95,47 +98,54 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
 
   if (disabledReason) {
     return (
-      <div className="px-4 pb-6">
-        <div className="rounded-lg bg-input px-4 py-3 text-muted-foreground">{disabledReason}</div>
+      <div className="flex min-h-composer items-center gap-2 rounded-lg border border-border bg-input px-4 py-3 text-label font-normal text-text-muted">
+        <Ban className="h-4 w-4 shrink-0" />
+        {disabledReason}
       </div>
     )
   }
 
   return (
-    <div className="px-4">
-      {error && <p className="mb-1 text-sm text-dnd">{error}</p>}
-      <div className="rounded-lg bg-input">
+    <div>
+      {error && <ErrorBox className="mb-2">{error}</ErrorBox>}
+      <div className="rounded-lg border border-border bg-input transition-colors duration-fast focus-within:border-brand">
         {file && (
           <div className="flex gap-2 border-b border-border p-3">
-            <div className="relative flex w-[200px] flex-col gap-2 rounded-md bg-sidebar p-2">
+            <div className="relative flex w-[200px] flex-col gap-1 rounded-md border border-border bg-sidebar p-2">
               {preview ? (
-                <img src={preview} alt="" className="h-[140px] w-full rounded object-contain" />
+                <img src={preview} alt="" className="h-[140px] w-full rounded-sm object-contain" />
               ) : (
-                <div className="flex h-[140px] items-center justify-center">
-                  <FileText className="h-14 w-14 text-brand" />
+                <div className="grid h-[140px] place-items-center">
+                  <FileText className="h-14 w-14 text-text-muted" />
                 </div>
               )}
-              <div className="truncate text-sm">{file.name}</div>
-              <div className="text-xs text-muted-foreground">{formatBytes(file.size)}</div>
-              <button
-                onClick={() => setFile(null)}
-                className="absolute -right-2 -top-2 rounded-md bg-chat p-1 text-dnd shadow hover:bg-hover"
-                aria-label="Eki kaldır"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="truncate text-label font-semibold text-header">{file.name}</div>
+              <div className="text-meta text-text-muted">{formatBytes(file.size)}</div>
+              <div className="absolute -right-2 -top-2">
+                <IconButton
+                  size="sm"
+                  danger
+                  label="Eki kaldır"
+                  onClick={() => setFile(null)}
+                  className="border border-border bg-floating shadow-sm"
+                >
+                  <X />
+                </IconButton>
+              </div>
             </div>
           </div>
         )}
-        <div className="flex items-start gap-1 px-4">
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            className="mt-[11px] text-muted-foreground hover:text-header"
-            aria-label="Dosya ekle"
-          >
-            <PlusCircle className="h-6 w-6" />
-          </button>
+        <div className="flex items-start gap-2 px-2">
+          <Tooltip label="Dosya ekle">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="mt-2 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-border-strong text-floating transition-colors duration-fast hover:bg-header"
+              aria-label="Dosya ekle"
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+            </button>
+          </Tooltip>
           <input
             ref={fileRef}
             type="file"
@@ -166,11 +176,11 @@ const Composer = forwardRef<ComposerHandle, Props>(function Composer(
             placeholder={placeholder}
             rows={1}
             maxLength={LIMITS.messageLength + 100}
-            className="max-h-[50vh] min-h-[44px] flex-1 resize-none bg-transparent px-2 py-[11px] leading-[1.375rem] text-foreground placeholder:text-muted-foreground focus:outline-none [field-sizing:content]"
+            className="max-h-[50vh] min-h-[42px] min-w-0 flex-1 resize-none bg-transparent py-[10.5px] text-body text-text placeholder:text-text-muted focus:outline-none focus-visible:outline-none [field-sizing:content]"
             autoFocus
           />
-          <div className="mt-[6px] flex items-center gap-1">
-            {busy && <Spinner className="h-4 w-4" />}
+          <div className="mt-[5px] flex items-center gap-1">
+            {busy && <Spinner />}
             <EmojiPicker
               onSelect={(emoji) => {
                 const el = inputRef.current

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, MessageCircle, MoreVertical, Users, X } from 'lucide-react'
+import { Ban, Check, MessageCircle, MoreVertical, Search, UserMinus, Users, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { errorMessage } from '@/lib/errors'
 import { displayStatus, STATUS_LABEL } from '@/lib/presence'
@@ -12,16 +12,21 @@ import { useOpenDm } from '@/hooks/useOpenDm'
 import { useUserId } from '@/stores/auth'
 import { Avatar } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { EmptyState, PeopleArt } from '@/components/ui/empty'
+import { ErrorBox, PrefixedInput } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/menu'
 import { Tooltip } from '@/components/ui/tooltip'
+import { CountBadge, TopBar, TopBarSep, TopBarTitle } from '@/components/layout/parts'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add'
 
+// Sekme sırası sabittir: Çevrimiçi, Tümü, Bekleyen, Engellenen.
 const TABS: { id: Exclude<Tab, 'add'>; label: string }[] = [
   { id: 'online', label: 'Çevrimiçi' },
   { id: 'all', label: 'Tümü' },
@@ -29,15 +34,16 @@ const TABS: { id: Exclude<Tab, 'add'>; label: string }[] = [
   { id: 'blocked', label: 'Engellenen' }
 ]
 
+/** 34px yuvarlak eylem düğmesi; normalde sidebar zeminli nötr daire. */
 function RoundAction({
   label,
   onClick,
-  danger,
+  tone,
   children
 }: {
   label: string
   onClick: () => void
-  danger?: boolean
+  tone?: 'accept' | 'reject'
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -49,8 +55,12 @@ function RoundAction({
           onClick()
         }}
         className={cn(
-          'flex h-9 w-9 items-center justify-center rounded-full bg-sidebar text-muted-foreground',
-          danger ? 'hover:text-dnd' : 'hover:text-header'
+          'grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-sidebar text-text-muted transition-colors duration-fast [&>svg]:h-[18px] [&>svg]:w-[18px]',
+          tone === 'accept'
+            ? 'hover:bg-online hover:text-on-online'
+            : tone === 'reject'
+              ? 'hover:bg-dnd hover:text-on-dnd'
+              : 'hover:bg-floating hover:text-header'
         )}
       >
         {children}
@@ -59,6 +69,7 @@ function RoundAction({
   )
 }
 
+/** Arkadaş satırı: ~54px, satırlar arası border çizgisi; eylemler her zaman görünür. */
 function Row({
   profile,
   subtitle,
@@ -73,7 +84,10 @@ function Row({
   return (
     <div
       onClick={onClick}
-      className="group mx-[-10px] flex h-[62px] cursor-pointer items-center gap-3 rounded-lg border-t border-border px-2.5 hover:border-transparent hover:bg-hover"
+      className={cn(
+        'group flex items-center gap-3 rounded-md border-t border-border px-3 py-2 transition-colors duration-fast first-of-type:border-t-transparent hover:border-transparent hover:bg-hover hover:[--ot-ring:hsl(var(--hover))] [&:hover+div]:border-t-transparent',
+        onClick && 'cursor-pointer'
+      )}
     >
       <Avatar
         src={profile.avatar_url}
@@ -81,20 +95,20 @@ function Row({
         seed={profile.id}
         size={32}
         status={displayStatus(profile)}
-        ringClass="ring-chat group-hover:ring-hover"
       />
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-semibold text-header">
-          {profile.display_name}
-          <span className="ml-1.5 hidden text-sm font-normal text-muted-foreground group-hover:inline">
-            @{profile.username}
-          </span>
-        </div>
-        <div className="truncate text-xs text-muted-foreground">{subtitle}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-body font-semibold leading-5 text-header">{profile.display_name}</span>
+        <span className="truncate text-meta text-text-muted">
+          @{profile.username} · {subtitle}
+        </span>
       </div>
-      <div className="flex gap-2.5">{children}</div>
+      <div className="flex shrink-0 gap-2">{children}</div>
     </div>
   )
+}
+
+function ListHead({ children, className }: { children: React.ReactNode; className?: string }): React.JSX.Element {
+  return <h3 className={cn('px-3 pb-2 text-overline uppercase text-text-muted', className)}>{children}</h3>
 }
 
 function AddFriend(): React.JSX.Element {
@@ -105,55 +119,55 @@ function AddFriend(): React.JSX.Element {
 
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault()
+    const name = username.trim().replace(/^@/, '')
     setBusy(true)
-    const { data, error } = await supabase.rpc('send_friend_request', {
-      p_username: username.trim().replace(/^@/, '')
-    })
+    const { data, error } = await supabase.rpc('send_friend_request', { p_username: name })
     setBusy(false)
     if (error) {
       setResult({ ok: false, text: errorMessage(error) })
       return
     }
     const texts: Record<string, string> = {
-      sent: `@${username} kullanıcısına arkadaşlık isteği gönderildi.`,
-      accepted: `@${username} ile artık arkadaşsınız!`,
-      already_friends: `@${username} zaten arkadaşın.`,
-      already_pending: `@${username} kullanıcısına zaten istek göndermiştin.`
+      sent: `@${name} kişisine arkadaşlık isteği gönderildi.`,
+      accepted: `@${name} ile artık arkadaşsınız!`,
+      already_friends: `@${name} zaten arkadaşın.`,
+      already_pending: `@${name} kişisine zaten istek göndermiştin.`
     }
-    setResult({ ok: true, text: texts[data] ?? 'Tamam.' })
-    setUsername('')
+    setResult({ ok: true, text: texts[data] ?? 'İstek gönderildi.' })
+    // Kutu temizlenmez; kullanıcı yazdığını görmeye devam eder.
     void qc.invalidateQueries({ queryKey: qk.friendships })
   }
 
   return (
-    <div className="border-b border-border px-8 py-5">
-      <h2 className="font-semibold uppercase text-header">Arkadaş Ekle</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        OldricTalk kullanıcı adlarıyla arkadaşlarını ekleyebilirsin.
+    <div className="flex max-w-content flex-col gap-2 px-3">
+      <h2 className="text-title-sm text-header">Arkadaş Ekle</h2>
+      <p className="text-meta text-text-muted">
+        Kullanıcı adını yazarak arkadaşlık isteği gönderebilirsin. Büyük-küçük harf önemli değil.
       </p>
-      <form
-        onSubmit={submit}
-        className={cn(
-          'mt-4 flex items-center rounded-lg bg-floating px-3 py-1.5 ring-1',
-          result ? (result.ok ? 'ring-online' : 'ring-dnd') : 'ring-black/40 focus-within:ring-brand'
-        )}
-      >
-        <input
-          value={username}
-          onChange={(e) => {
-            setUsername(e.target.value.toLowerCase())
-            setResult(null)
-          }}
-          placeholder="Kullanıcı adı yazarak arkadaş ekleyebilirsin."
-          className="h-10 flex-1 bg-transparent text-header placeholder:text-muted-foreground focus:outline-none"
-          autoFocus
-        />
-        <Button type="submit" size="sm" disabled={!username.trim() || busy}>
+      <form onSubmit={submit} className="mt-2 flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <PrefixedInput
+            prefix="@"
+            value={username}
+            onChange={(e) => {
+              setUsername(e.target.value.toLowerCase())
+              setResult(null)
+            }}
+            aria-label="Kullanıcı adı"
+            aria-invalid={result?.ok === false}
+            placeholder="kullaniciadi"
+            autoFocus
+          />
+        </div>
+        <Button type="submit" disabled={!username.trim() || busy}>
           Arkadaşlık İsteği Gönder
         </Button>
       </form>
       {result && (
-        <p className={cn('mt-2 text-sm', result.ok ? 'text-online' : 'text-dnd')}>{result.text}</p>
+        <p className={cn('mt-1 flex items-center gap-1 text-meta', result.ok ? 'text-online' : 'text-dnd')}>
+          {result.ok ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+          {result.text}
+        </p>
       )}
     </div>
   )
@@ -168,6 +182,8 @@ export default function FriendsPage(): React.JSX.Element {
   const openDm = useOpenDm()
   const { data: friendships = [] } = useFriendships()
   const { data: blocked = [] } = useBlocks()
+  const [query, setQuery] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const friends = friendships
     .filter((f) => f.status === 'accepted')
@@ -177,157 +193,209 @@ export default function FriendsPage(): React.JSX.Element {
   const outgoing = friendships.filter((f) => f.status === 'pending' && f.requester_id === me)
 
   async function call(fn: string, args: Record<string, unknown>): Promise<void> {
+    setActionError(null)
     const { error } = await supabase.rpc(fn as 'remove_friend', args as { p_other: string })
-    if (error) alert(errorMessage(error))
+    if (error) setActionError(errorMessage(error))
     void qc.invalidateQueries({ queryKey: qk.friendships })
     void qc.invalidateQueries({ queryKey: qk.blocks })
   }
 
+  const q = query.trim().toLocaleLowerCase('tr')
+  const matches = (p: Profile): boolean =>
+    !q || p.display_name.toLocaleLowerCase('tr').includes(q) || p.username.includes(q)
   const online = friends.filter((f) => displayStatus(f) !== 'offline')
-  const list = tab === 'online' ? online : friends
+  const list = (tab === 'online' ? online : friends).filter(matches)
 
   return (
     <>
-      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-black/30 px-4 shadow-sm">
-        <div className="flex items-center gap-2 font-semibold text-header">
-          <Users className="h-5 w-5 text-muted-foreground" /> Arkadaşlar
-        </div>
-        <div className="h-6 w-px bg-border" />
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={cn(
-              'rounded-md px-2 py-0.5 font-medium',
-              tab === t.id ? 'bg-selected text-header' : 'text-muted-foreground hover:bg-hover hover:text-foreground'
-            )}
-          >
-            {t.label}
-            {t.id === 'pending' && incoming.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-dnd px-1.5 text-xs font-bold text-white">
-                {incoming.length}
-              </span>
-            )}
-          </button>
-        ))}
-        <button
-          onClick={() => setTab('add')}
-          className={cn(
-            'rounded-md px-2 py-0.5 font-medium',
-            tab === 'add' ? 'bg-transparent text-online' : 'bg-online text-white'
-          )}
-        >
+      <TopBar>
+        <TopBarTitle icon={<Users />}>Arkadaşlar</TopBarTitle>
+        <TopBarSep />
+        <nav className="flex min-w-0 items-center gap-1" aria-label="Arkadaş listeleri">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              aria-current={tab === t.id ? 'page' : undefined}
+              className={cn(
+                'inline-flex h-7 shrink-0 items-center gap-2 rounded-sm px-3 text-label font-semibold transition-colors duration-fast',
+                tab === t.id ? 'bg-selected text-header' : 'text-text-muted hover:bg-hover hover:text-text'
+              )}
+            >
+              {t.label}
+              {t.id === 'pending' && incoming.length > 0 && <CountBadge count={incoming.length} />}
+            </button>
+          ))}
+        </nav>
+        <div className="flex-1" />
+        <Button size="sm" variant="success" onClick={() => setTab('add')} aria-current={tab === 'add' ? 'page' : undefined}>
           Arkadaş Ekle
-        </button>
-      </header>
+        </Button>
+      </TopBar>
 
-      {tab === 'add' && <AddFriend />}
+      <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-6 py-4 [--ot-ring:hsl(var(--chat))]">
+        {actionError && <ErrorBox className="mx-3 mb-4">{actionError}</ErrorBox>}
 
-      <div className="thin-scroll flex-1 overflow-y-auto px-8 pt-4">
+        {tab === 'add' && <AddFriend />}
+
         {(tab === 'online' || tab === 'all') && (
           <>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {tab === 'online' ? 'Çevrimiçi' : 'Tüm arkadaşlar'} — {list.length}
-            </h3>
-            {list.map((p) => (
-              <Row
-                key={p.id}
-                profile={p}
-                subtitle={p.custom_status || STATUS_LABEL[displayStatus(p)]}
-                onClick={() => void openDm(p.id)}
-              >
-                <RoundAction label="Mesaj" onClick={() => void openDm(p.id)}>
-                  <MessageCircle className="h-5 w-5" />
-                </RoundAction>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                    <button
-                      aria-label="Diğer"
-                      className="flex h-9 w-9 items-center justify-center rounded-full bg-sidebar text-muted-foreground hover:text-header"
-                    >
-                      <MoreVertical className="h-5 w-5" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenuItem danger onSelect={() => void call('remove_friend', { p_other: p.id })}>
-                      Arkadaşlıktan çıkar
-                    </DropdownMenuItem>
-                    <DropdownMenuItem danger onSelect={() => void call('block_user', { p_other: p.id })}>
-                      Engelle
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </Row>
-            ))}
-            {list.length === 0 && (
-              <Empty
-                text={
-                  tab === 'online'
-                    ? 'Şu an çevrimiçi arkadaşın yok.'
-                    : 'Henüz arkadaşın yok. “Arkadaş Ekle” ile başlayabilirsin.'
-                }
-              />
+            {friends.length > 0 && (
+              <div className="px-3 pb-3">
+                <label className="flex h-[34px] items-center gap-2 rounded-md border border-transparent bg-input px-2 text-text-muted transition-colors duration-fast hover:border-border focus-within:border-brand">
+                  <Search className="h-3.5 w-3.5 shrink-0" />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Ara"
+                    aria-label="Arkadaşlarda ara"
+                    className="h-full min-w-0 flex-1 bg-transparent text-label font-normal text-text placeholder:text-text-muted focus:outline-none focus-visible:outline-none"
+                  />
+                </label>
+              </div>
             )}
+            {list.length > 0 && (
+              <ListHead>
+                {tab === 'online' ? 'Çevrimiçi' : 'Tüm arkadaşlar'} — {list.length}
+              </ListHead>
+            )}
+            <div>
+              {list.map((p) => (
+                <Row
+                  key={p.id}
+                  profile={p}
+                  subtitle={p.custom_status || STATUS_LABEL[displayStatus(p)]}
+                  onClick={() => void openDm(p.id)}
+                >
+                  <RoundAction label="Mesaj" onClick={() => void openDm(p.id)}>
+                    <MessageCircle />
+                  </RoundAction>
+                  <DropdownMenu>
+                    <Tooltip label="Diğer">
+                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                        <button
+                          aria-label="Diğer"
+                          className="grid h-[34px] w-[34px] place-items-center rounded-full bg-sidebar text-text-muted transition-colors duration-fast hover:bg-floating hover:text-header data-[state=open]:bg-floating data-[state=open]:text-header"
+                        >
+                          <MoreVertical className="h-[18px] w-[18px]" />
+                        </button>
+                      </DropdownMenuTrigger>
+                    </Tooltip>
+                    <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenuItem onSelect={() => void openDm(p.id)}>
+                        <MessageCircle /> Mesaj gönder
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem danger onSelect={() => void call('remove_friend', { p_other: p.id })}>
+                        <UserMinus /> Arkadaşlıktan çıkar
+                      </DropdownMenuItem>
+                      <DropdownMenuItem danger onSelect={() => void call('block_user', { p_other: p.id })}>
+                        <Ban /> Engelle
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </Row>
+              ))}
+            </div>
+            {list.length === 0 &&
+              (q ? (
+                <EmptyState title="Eşleşen arkadaş yok." sub="Aramayı değiştirip yeniden dene." />
+              ) : tab === 'online' && friends.length > 0 ? (
+                <EmptyState
+                  art={<PeopleArt />}
+                  title="Şu an çevrimiçi arkadaşın yok."
+                  sub="Arkadaşların bağlandığında burada görünecek."
+                />
+              ) : (
+                <EmptyState
+                  art={<PeopleArt />}
+                  title="Henüz arkadaşın yok."
+                  sub="Arkadaş Ekle ile kullanıcı adını yazarak ilk isteğini gönderebilirsin."
+                />
+              ))}
           </>
         )}
 
         {tab === 'pending' && (
           <>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Bekleyen — {incoming.length + outgoing.length}
-            </h3>
-            {incoming.map((f) => (
-              <Row key={f.requester_id} profile={f.requester} subtitle="Gelen arkadaşlık isteği">
-                <RoundAction
-                  label="Kabul et"
-                  onClick={() => void call('accept_friend_request', { p_requester: f.requester_id })}
-                >
-                  <Check className="h-5 w-5" />
-                </RoundAction>
-                <RoundAction
-                  label="Reddet"
-                  danger
-                  onClick={() => void call('decline_friend_request', { p_requester: f.requester_id })}
-                >
-                  <X className="h-5 w-5" />
-                </RoundAction>
-              </Row>
-            ))}
-            {outgoing.map((f) => (
-              <Row key={f.addressee_id} profile={f.addressee} subtitle="Giden arkadaşlık isteği">
-                <RoundAction
-                  label="İptal et"
-                  danger
-                  onClick={() => void call('remove_friend', { p_other: f.addressee_id })}
-                >
-                  <X className="h-5 w-5" />
-                </RoundAction>
-              </Row>
-            ))}
-            {incoming.length + outgoing.length === 0 && <Empty text="Bekleyen arkadaşlık isteği yok." />}
+            {incoming.length > 0 && (
+              <>
+                <ListHead>Gelen istekler — {incoming.length}</ListHead>
+                <div>
+                  {incoming.map((f) => (
+                    <Row key={f.requester_id} profile={f.requester} subtitle="Gelen arkadaşlık isteği">
+                      <RoundAction
+                        label="Kabul Et"
+                        tone="accept"
+                        onClick={() => void call('accept_friend_request', { p_requester: f.requester_id })}
+                      >
+                        <Check />
+                      </RoundAction>
+                      <RoundAction
+                        label="Reddet"
+                        tone="reject"
+                        onClick={() => void call('decline_friend_request', { p_requester: f.requester_id })}
+                      >
+                        <X />
+                      </RoundAction>
+                    </Row>
+                  ))}
+                </div>
+              </>
+            )}
+            {outgoing.length > 0 && (
+              <>
+                <ListHead className={incoming.length > 0 ? 'pt-5' : undefined}>
+                  Gönderilen istekler — {outgoing.length}
+                </ListHead>
+                <div>
+                  {outgoing.map((f) => (
+                    <Row key={f.addressee_id} profile={f.addressee} subtitle="İstek gönderildi">
+                      <RoundAction
+                        label="İsteği geri al"
+                        tone="reject"
+                        onClick={() => void call('remove_friend', { p_other: f.addressee_id })}
+                      >
+                        <X />
+                      </RoundAction>
+                    </Row>
+                  ))}
+                </div>
+              </>
+            )}
+            {incoming.length + outgoing.length === 0 && (
+              <EmptyState
+                art={<PeopleArt />}
+                title="Bekleyen arkadaşlık isteği yok."
+                sub="Sana gelen ve senin gönderdiğin istekler burada görünür."
+              />
+            )}
           </>
         )}
 
-        {tab === 'blocked' && (
-          <>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Engellenen — {blocked.length}
-            </h3>
-            {blocked.map((p) => (
-              <Row key={p.id} profile={p} subtitle="Engellendi">
-                <RoundAction label="Engeli kaldır" onClick={() => void call('unblock_user', { p_other: p.id })}>
-                  <X className="h-5 w-5" />
-                </RoundAction>
-              </Row>
-            ))}
-            {blocked.length === 0 && <Empty text="Engellediğin kimse yok." />}
-          </>
-        )}
+        {tab === 'blocked' &&
+          (blocked.length > 0 ? (
+            <>
+              <ListHead>Engellenen — {blocked.length}</ListHead>
+              <div>
+                {blocked.map((p) => (
+                  <Row key={p.id} profile={p} subtitle="Engellendi">
+                    <RoundAction label="Engeli kaldır" onClick={() => void call('unblock_user', { p_other: p.id })}>
+                      <X />
+                    </RoundAction>
+                  </Row>
+                ))}
+              </div>
+            </>
+          ) : (
+            <EmptyState
+              className="min-h-full"
+              art={<PeopleArt crossed />}
+              title="Engellediğin kimse yok."
+              sub="Engellediğin kişiler burada listelenir; engeli buradan kaldırabilirsin."
+            />
+          ))}
       </div>
     </>
   )
-}
-
-function Empty({ text }: { text: string }): React.JSX.Element {
-  return <p className="py-16 text-center text-muted-foreground">{text}</p>
 }

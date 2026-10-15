@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Headphones } from 'lucide-react'
+import { Headphones, RotateCcw } from 'lucide-react'
 import { MicPipeline } from '@/lib/micPipeline'
 import { cn } from '@/lib/utils'
 import { DEFAULT_AUDIO, setAudioSettings, useAudioSettings } from '@/stores/audioSettings'
 import { Button } from '@/components/ui/button'
+import { ErrorBox, Overline } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
+import { SwitchRow } from '@/components/ui/switch'
 import {
   Dialog,
   DialogBody,
@@ -18,45 +21,7 @@ const METER_MIN_DB = -80
 const toPct = (db: number): number =>
   Math.min(100, Math.max(0, ((db - METER_MIN_DB) / -METER_MIN_DB) * 100))
 
-function Switch({
-  label,
-  hint,
-  checked,
-  onChange
-}: {
-  label: string
-  hint: string
-  checked: boolean
-  onChange: (v: boolean) => void
-}): React.JSX.Element {
-  return (
-    <label className="flex cursor-pointer items-start gap-3">
-      <span className="flex-1">
-        <span className="block font-medium text-header">{label}</span>
-        <span className="block text-xs text-muted-foreground">{hint}</span>
-      </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          'relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition',
-          checked ? 'bg-online' : 'bg-[hsl(220_5%_40%)]'
-        )}
-      >
-        <span
-          className={cn(
-            'absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all',
-            checked ? 'left-[18px]' : 'left-0.5'
-          )}
-        />
-      </button>
-    </label>
-  )
-}
-
+/** Aygıt seçimi; ilk seçenek her zaman "Windows varsayılanı". */
 function DeviceSelect({
   label,
   kind,
@@ -71,23 +36,20 @@ function DeviceSelect({
   onChange: (id: string | null) => void
 }): React.JSX.Element {
   const list = devices.filter((d) => d.kind === kind && d.deviceId !== 'default' && d.deviceId !== 'communications')
+  const options = [
+    { value: '', label: 'Windows varsayılanı' },
+    ...list.map((d, i) => ({ value: d.deviceId, label: d.label || `${label} ${i + 1}` }))
+  ]
   return (
-    <label className="block space-y-2">
-      <span className="block text-xs font-bold uppercase tracking-wide text-muted-foreground">{label}</span>
-      <select
-        aria-label={label}
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      <Overline>{label}</Overline>
+      <Select
+        label={label}
         value={value && list.some((d) => d.deviceId === value) ? value : ''}
-        onChange={(e) => onChange(e.target.value || null)}
-        className="h-10 w-full rounded-sm bg-floating px-2 text-[15px] text-header focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-      >
-        <option value="">Windows varsayılanı</option>
-        {list.map((d, i) => (
-          <option key={d.deviceId} value={d.deviceId}>
-            {d.label || `${label} ${i + 1}`}
-          </option>
-        ))}
-      </select>
-    </label>
+        options={options}
+        onChange={(v) => onChange(v || null)}
+      />
+    </div>
   )
 }
 
@@ -123,7 +85,7 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
         // İzin verildikten sonra cihaz adları görünür olur.
         void navigator.mediaDevices.enumerateDevices().then(setDevices)
       })
-      .catch(() => !cancelled && setTestError('Mikrofon açılamadı. Windows ses ayarlarında mikrofon iznini kontrol edin.'))
+      .catch(() => !cancelled && setTestError('Mikrofon açılamadı. Windows ses ayarlarında mikrofon iznini kontrol et.'))
     return () => {
       cancelled = true
       pipeline?.destroy()
@@ -162,13 +124,13 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-[540px]">
+      <DialogContent className="w-modal-lg">
         <DialogHeader>
           <DialogTitle>Ses Ayarları</DialogTitle>
           <DialogDescription>Bu ayarlar yalnızca bu bilgisayar için geçerlidir.</DialogDescription>
         </DialogHeader>
-        <DialogBody className="max-h-[65vh] space-y-5 overflow-y-auto">
-          <div className="grid grid-cols-2 gap-3">
+        <DialogBody className="thin-scroll max-h-[65vh] space-y-0 overflow-y-auto">
+          <div className="flex items-start gap-3">
             <DeviceSelect
               label="Mikrofon"
               kind="audioinput"
@@ -177,7 +139,7 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
               onChange={(inputId) => setAudioSettings({ inputId })}
             />
             <DeviceSelect
-              label="Hoparlör / kulaklık"
+              label="Hoparlör / Kulaklık"
               kind="audiooutput"
               devices={devices}
               value={s.outputId}
@@ -185,93 +147,95 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
             />
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Mikrofon testi</span>
-              <Button
-                type="button"
-                size="sm"
-                variant={listening ? 'success' : 'secondary'}
-                onClick={() => setListening((v) => !v)}
-              >
-                <Headphones className="h-4 w-4" /> {listening ? 'Dinlemeyi durdur' : 'Kendimi dinle'}
-              </Button>
-            </div>
-            <div className="relative h-3 overflow-hidden rounded-full bg-floating" aria-label="Mikrofon seviyesi">
+          <div className="mt-5 flex items-center justify-between">
+            <Overline>Mikrofon testi</Overline>
+            <Button
+              type="button"
+              size="sm"
+              variant={listening ? 'success' : 'outline'}
+              onClick={() => setListening((v) => !v)}
+            >
+              <Headphones className="h-3.5 w-3.5" /> {listening ? 'Dinlemeyi Durdur' : 'Kendimi dinle'}
+            </Button>
+          </div>
+          <div className="mt-2 flex flex-col gap-2">
+            {/* Seviye çubuğu: konuşurken online, sessizken border-strong; eşik çizgisi idle, çubuğun üstüne taşar. */}
+            <div className="relative" role="meter" aria-label="Mikrofon seviyesi" aria-valuemin={METER_MIN_DB} aria-valuemax={0} aria-valuenow={Math.round(meter.level)}>
+              <div className="h-2.5 overflow-hidden rounded-pill border border-border bg-input">
+                <div
+                  className={cn('h-full transition-[width] duration-75', meter.open ? 'bg-online' : 'bg-border-strong')}
+                  style={{ width: `${toPct(meter.level)}%` }}
+                />
+              </div>
               <div
-                className={cn('h-full transition-[width] duration-75', meter.open ? 'bg-online' : 'bg-[hsl(220_5%_45%)]')}
-                style={{ width: `${toPct(meter.level)}%` }}
-              />
-              <div
-                className="absolute top-0 h-full w-0.5 bg-idle"
+                className="absolute -bottom-[3px] -top-[3px] w-0.5 rounded-pill bg-idle"
                 style={{ left: `${toPct(meter.threshold)}%` }}
                 title="Eşik"
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              {testError ??
-                (meter.open
-                  ? 'Ses gidiyor (yeşil). Konuşmadığınızda çubuk griye dönmeli; dönüyorsa cızırtı karşıya gitmez.'
-                  : 'Konuşun: çubuk yeşile dönünce sesiniz gidiyor demektir. Sarı çizgi eşiktir.')}
-            </p>
+            {testError ? (
+              <ErrorBox>{testError}</ErrorBox>
+            ) : (
+              <span className="text-meta text-text-muted">
+                Konuşmaya başla; çubuk sarı çizgiyi geçtiğinde sesin karşı tarafa gider.
+              </span>
+            )}
             <audio ref={loopback} hidden />
           </div>
 
-          <Switch
-            label="Gürültü engelleme (önerilen)"
-            hint="Yapay zekâ ile cızırtı, fan, klavye gibi arka plan seslerini temizler."
-            checked={s.denoise}
-            onChange={(denoise) => setAudioSettings({ denoise })}
-          />
-
-          <div className="space-y-2">
-            <Switch
-              label="Giriş hassasiyetini otomatik ayarla"
-              hint="Konuşmadığınız anlarda mikrofon hiç ses göndermez; eşik ortam gürültüsüne göre ayarlanır."
+          <div className="mt-3">
+            <SwitchRow
+              title="Gürültü engelleme (önerilen)"
+              desc="Klavye sesini, fan uğultusunu ve cızırtıyı bastırır."
+              checked={s.denoise}
+              onChange={(denoise) => setAudioSettings({ denoise })}
+            />
+            <SwitchRow
+              title="Giriş hassasiyetini otomatik ayarla"
+              desc="Kapatırsan eşiği kendin belirlersin."
               checked={s.gateAuto}
               onChange={(gateAuto) => setAudioSettings({ gateAuto })}
+            >
+              {!s.gateAuto && (
+                <div className="flex max-w-[320px] flex-col gap-2">
+                  <input
+                    type="range"
+                    min={METER_MIN_DB}
+                    max={-10}
+                    step={1}
+                    value={s.gateDb}
+                    aria-label="Giriş hassasiyeti"
+                    onChange={(e) => setAudioSettings({ gateDb: Number(e.target.value) })}
+                    className="range"
+                    style={{ ['--fill' as string]: `${((s.gateDb - METER_MIN_DB) / (-10 - METER_MIN_DB)) * 100}%` }}
+                  />
+                  <span className="text-meta text-text-muted">Eşik: {s.gateDb} dB</span>
+                </div>
+              )}
+            </SwitchRow>
+            <SwitchRow
+              title="Otomatik ses seviyesi"
+              desc="Sesini diğer kişilerle aynı seviyeye getirir; cızırtı artarsa kapatmayı dene."
+              checked={s.agc}
+              onChange={(agc) => setAudioSettings({ agc })}
             />
-            {!s.gateAuto && (
-              <label className="block space-y-1">
-                <input
-                  type="range"
-                  min={METER_MIN_DB}
-                  max={-10}
-                  step={1}
-                  value={s.gateDb}
-                  aria-label="Giriş hassasiyeti"
-                  onChange={(e) => setAudioSettings({ gateDb: Number(e.target.value) })}
-                  className="w-full accent-[hsl(var(--brand))]"
-                />
-                <span className="block text-xs text-muted-foreground">
-                  Eşik: {s.gateDb} dB — sarı çizginin solundaki sesler gönderilmez.
-                </span>
-              </label>
-            )}
+            <SwitchRow
+              title="Yankı engelleme"
+              desc="Hoparlörden çıkan sesin mikrofona geri dönmesini önler."
+              checked={s.echo}
+              onChange={(echo) => setAudioSettings({ echo })}
+            />
           </div>
-
-          <Switch
-            label="Otomatik ses seviyesi"
-            hint="Sesinizi otomatik yükseltir/alçaltır. Cızırtı artıyorsa kapatmayı deneyin."
-            checked={s.agc}
-            onChange={(agc) => setAudioSettings({ agc })}
-          />
-          <Switch
-            label="Yankı engelleme"
-            hint="Hoparlörden gelen sesin mikrofona geri girmesini önler. Kulaklıkla kapatılabilir."
-            checked={s.echo}
-            onChange={(echo) => setAudioSettings({ echo })}
-          />
         </DialogBody>
-        <DialogFooter className="justify-between">
+        <DialogFooter>
           <Button
             type="button"
-            variant="link"
-            className="text-foreground"
+            variant="ghost"
             onClick={() => setAudioSettings({ ...DEFAULT_AUDIO, inputId: s.inputId, outputId: s.outputId })}
           >
-            Varsayılanlara dön
+            <RotateCcw className="h-4 w-4" /> Varsayılanlara dön
           </Button>
+          <div className="flex-1" />
           <Button type="button" onClick={onClose}>
             Tamam
           </Button>

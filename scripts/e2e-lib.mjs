@@ -52,7 +52,8 @@ export async function shot(dir, c, file) {
 
 export async function login(c, email, password) {
   await c.win.getByLabel('E-posta').fill(email)
-  await c.win.getByLabel('Şifre').fill(password)
+  // Şifre kutusunun yanındaki göz düğmesi de "Şifre…" etiketini taşır.
+  await c.win.locator('input[autocomplete="current-password"]').fill(password)
   await c.win.getByRole('button', { name: 'Giriş Yap' }).click()
   await c.win.getByRole('link', { name: 'Arkadaşlar' }).waitFor({ timeout: T })
 }

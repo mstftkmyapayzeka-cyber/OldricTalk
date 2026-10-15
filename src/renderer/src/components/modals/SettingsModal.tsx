@@ -5,14 +5,58 @@ import { supabase } from '@/lib/supabase'
 import { signOut } from '@/lib/session'
 import { errorMessage } from '@/lib/errors'
 import { uploadFile } from '@/lib/upload'
+import { cn } from '@/lib/utils'
 import type { Profile } from '@/lib/types'
 import { qk, useMyProfile } from '@/hooks/queries'
+import { setTheme, useTheme, type ThemeChoice } from '@/stores/theme'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Field, Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { ErrorBox, Field, Input, Overline, PrefixedInput } from '@/components/ui/input'
 import ImagePicker from './ImagePicker'
 
 const USERNAME_RE = /^[a-z0-9_.]{2,32}$/
+
+const THEMES: { id: ThemeChoice; label: string }[] = [
+  { id: 'light', label: 'Krem' },
+  { id: 'dark', label: 'Koyu' },
+  { id: 'system', label: 'Windows ile Aynı' }
+]
+
+/** Krem ana tema; koyu tema isteğe bağlı. Bu bilgisayara özel, anında uygulanır. */
+function ThemePicker(): React.JSX.Element {
+  const choice = useTheme((s) => s.choice)
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Overline>Tema</Overline>
+      <div role="radiogroup" aria-label="Tema" className="flex items-center gap-1">
+        {THEMES.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="radio"
+            aria-checked={choice === t.id}
+            onClick={() => setTheme(t.id)}
+            className={cn(
+              'inline-flex h-7 items-center rounded-sm px-3 text-label font-semibold transition-colors duration-fast',
+              choice === t.id ? 'bg-selected text-header' : 'text-text-muted hover:bg-hover hover:text-text'
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <span className="text-meta text-text-muted">Bu ayar yalnızca bu bilgisayar için geçerlidir.</span>
+    </div>
+  )
+}
 
 export default function SettingsModal({ onClose }: { onClose: () => void }): React.JSX.Element | null {
   const qc = useQueryClient()
@@ -48,6 +92,13 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
 
   if (!me) return null
 
+  // Kaydet, değişiklik yoksa devre dışıdır.
+  const changed =
+    !!avatar ||
+    displayName.trim() !== me.display_name ||
+    username !== me.username ||
+    (customStatus.trim() || null) !== (me.custom_status || null)
+
   async function save(e: React.FormEvent): Promise<void> {
     e.preventDefault()
     if (usernameOk === false) return
@@ -80,48 +131,62 @@ export default function SettingsModal({ onClose }: { onClose: () => void }): Rea
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-[500px]">
+      <DialogContent className="w-modal-lg">
         <form onSubmit={save}>
           <DialogHeader>
             <DialogTitle>Profilim</DialogTitle>
+            <DialogDescription>Seni sunucularda ve özel mesajlarda böyle görürler.</DialogDescription>
           </DialogHeader>
-          <DialogBody>
-            <ImagePicker file={avatar} currentUrl={me.avatar_url} onPick={setAvatar} className="h-24 w-24" />
-            <Field label="Görünen ad">
-              <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={32} />
-            </Field>
-            <Field
-              label="Kullanıcı adı"
-              error={usernameOk === false ? 'geçersiz ya da alınmış' : null}
-              hint={usernameOk ? '✓ Müsait' : 'küçük harf, rakam, _ ve . (2–32)'}
-            >
-              <Input value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} maxLength={32} />
-            </Field>
-            <Field label="Özel durum" hint="Adının altında görünür.">
-              <Input
-                value={customStatus}
-                onChange={(e) => setCustomStatus(e.target.value)}
-                maxLength={128}
-                placeholder="Ne yapıyorsun?"
-              />
-            </Field>
-            {error && <p className="text-sm text-dnd">{error}</p>}
+          <DialogBody className="space-y-5">
+            <div className="flex items-start gap-5">
+              <div className="flex flex-col items-center gap-2">
+                <ImagePicker file={avatar} currentUrl={me.avatar_url} onPick={setAvatar} ariaLabel="Avatar yükle" />
+                <span className="text-meta text-text-muted">En az 128×128 px</span>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-4">
+                <Field label="Görünen ad">
+                  <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={32} />
+                </Field>
+                <Field
+                  label="Kullanıcı adı"
+                  hint="Küçük harf, rakam, _ ve . (2–32 karakter)."
+                  error={usernameOk === false ? 'Geçersiz ya da alınmış' : null}
+                  ok={usernameOk ? 'Müsait' : null}
+                >
+                  <PrefixedInput
+                    prefix="@"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                    maxLength={32}
+                    aria-invalid={usernameOk === false}
+                  />
+                </Field>
+                <Field label="Özel durum" hint="Adının altında görünür.">
+                  <Input
+                    value={customStatus}
+                    onChange={(e) => setCustomStatus(e.target.value)}
+                    maxLength={128}
+                    placeholder="Ne yapıyorsun?"
+                  />
+                </Field>
+              </div>
+            </div>
+            <div className="h-px bg-border" />
+            <ThemePicker />
+            {error && <ErrorBox>{error}</ErrorBox>}
           </DialogBody>
-          <DialogFooter className="justify-between">
-            <div className="flex items-center gap-3">
-              <Button type="button" variant="ghost" className="text-dnd" onClick={() => void signOut()}>
-                <LogOut className="h-4 w-4" /> Çıkış yap
-              </Button>
-              {version && <span className="text-xs text-muted-foreground">v{version}</span>}
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" variant="link" className="text-foreground" onClick={onClose}>
-                İptal
-              </Button>
-              <Button type="submit" disabled={busy || usernameOk === false}>
-                Kaydet
-              </Button>
-            </div>
+          <DialogFooter>
+            <Button type="button" variant="dangerGhost" onClick={() => void signOut()}>
+              <LogOut className="h-4 w-4" /> Çıkış yap
+            </Button>
+            {version && <span className="ml-2 text-meta text-text-muted">v{version}</span>}
+            <div className="flex-1" />
+            <Button type="button" variant="ghost" onClick={onClose}>
+              İptal
+            </Button>
+            <Button type="submit" disabled={busy || !changed || usernameOk === false}>
+              Kaydet
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Upload } from 'lucide-react'
 import { markRead } from '@/lib/actions'
+import { LIMITS } from '@/lib/config'
+import { formatBytes } from '@/lib/utils'
 import type { ChatTarget, MemberRole, ProfileLite } from '@/lib/types'
 import { useActiveTarget } from '@/stores/active'
 import MessageList from './MessageList'
@@ -12,6 +14,8 @@ type Props = {
   target: ChatTarget
   me: ProfileLite & { username: string }
   placeholder: string
+  /** Bırakma katmanında hedef: "#genel kanalına", "@Ayşe kişisine". */
+  dropTarget: string
   welcome: React.ReactNode
   canModerate?: boolean
   roles?: Map<string, { role: MemberRole; nickname: string | null }>
@@ -23,6 +27,7 @@ export default function ChatView({
   target,
   me,
   placeholder,
+  dropTarget,
   welcome,
   canModerate = false,
   roles,
@@ -49,7 +54,7 @@ export default function ChatView({
 
   return (
     <div
-      className="relative flex min-h-0 flex-1 flex-col"
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col"
       onDragEnter={(e) => {
         if (!e.dataTransfer.types.includes('Files') || disabledReason) return
         dragDepth.current++
@@ -77,21 +82,27 @@ export default function ChatView({
         welcome={welcome}
         roles={roles}
       />
-      <Composer
-        key={`c-${target.id}`}
-        ref={composer}
-        target={target}
-        me={me}
-        placeholder={placeholder}
-        disabledReason={disabledReason}
-      />
-      <TypingIndicator targetId={target.id} />
+      <div className="px-4 pb-4">
+        <TypingIndicator targetId={target.id} />
+        <Composer
+          key={`c-${target.id}`}
+          ref={composer}
+          target={target}
+          me={me}
+          placeholder={placeholder}
+          disabledReason={disabledReason}
+        />
+      </div>
 
+      {/* Bırakma katmanı: siyah %55 örtü, brand kesikli çerçeve, brand-soft zemin. */}
       {dragging && (
-        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/60">
-          <div className="flex flex-col items-center gap-3 rounded-xl bg-brand p-8 text-white shadow-2xl">
-            <Upload className="h-12 w-12" />
-            <p className="text-lg font-bold">Dosyayı yüklemek için bırak</p>
+        <div className="pointer-events-none absolute inset-0 z-40 grid place-items-center bg-black/55 animate-fade-in">
+          <div className="grid place-items-center gap-3 rounded-lg border-2 border-dashed border-brand bg-brand-soft px-10 py-8 text-center">
+            <Upload className="h-9 w-9 text-brand" />
+            <p className="text-title-md text-header">Dosyayı yüklemek için bırak</p>
+            <p className="text-meta text-text-muted">
+              {dropTarget} gönderilecek · en fazla {formatBytes(LIMITS.attachmentBytes)}
+            </p>
           </div>
         </div>
       )}

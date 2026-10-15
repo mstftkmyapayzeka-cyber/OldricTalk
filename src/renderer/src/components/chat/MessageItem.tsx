@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { format, isToday, isYesterday } from 'date-fns'
 import { tr } from 'date-fns/locale'
-import { Copy, Download, FileText, Pencil, Trash2 } from 'lucide-react'
+import { Copy, Download, FileText, Hash, Pencil, Trash2 } from 'lucide-react'
 import { deleteMessage, editMessage } from '@/lib/actions'
 import { errorMessage } from '@/lib/errors'
 import { mentions } from '@/lib/markdown'
@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import type { ChatMessage, ChatTarget, MemberRole } from '@/lib/types'
 import { Avatar } from '@/components/ui/avatar'
 import { ConfirmDialog } from '@/components/ui/confirm'
+import { IconButton } from '@/components/ui/icon-button'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -18,19 +19,15 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/menu'
 import { Tooltip } from '@/components/ui/tooltip'
+import { ROLE_COLOR } from '@/components/server/MemberList'
 import UserCard from '@/components/user/UserCard'
 import Markdown from './Markdown'
 
 export function formatStamp(iso: string): string {
   const d = new Date(iso)
-  if (isToday(d)) return `Bugün ${format(d, 'HH:mm')}`
+  if (isToday(d)) return format(d, 'HH:mm')
   if (isYesterday(d)) return `Dün ${format(d, 'HH:mm')}`
-  return format(d, 'd.MM.yyyy HH:mm')
-}
-
-const ROLE_COLOR: Partial<Record<MemberRole, string>> = {
-  admin: 'text-[hsl(358_85%_70%)]',
-  moderator: 'text-[hsl(200_90%_65%)]'
+  return format(d, 'd MMMM yyyy HH:mm', { locale: tr })
 }
 
 type Props = {
@@ -76,6 +73,11 @@ function MessageItemInner({
     }
   }, [editing])
 
+  function startEdit(): void {
+    setDraft(msg.content)
+    setEditing(true)
+  }
+
   async function saveEdit(): Promise<void> {
     const content = draft.trim()
     if (!content && !msg.file_url) {
@@ -99,18 +101,25 @@ function MessageItemInner({
   const header = (
     <div className="flex items-baseline gap-2">
       <UserCard userId={msg.author_id} role={authorRole}>
-        <button className={cn('font-medium text-header hover:underline', authorRole && ROLE_COLOR[authorRole])}>
+        <button
+          className={cn(
+            'truncate text-body font-semibold text-header hover:underline',
+            authorRole && ROLE_COLOR[authorRole]
+          )}
+        >
           {name}
         </button>
       </UserCard>
-      <span className="text-xs text-muted-foreground">{formatStamp(msg.created_at)}</span>
+      <time dateTime={msg.created_at} className="shrink-0 text-meta text-text-muted">
+        {formatStamp(msg.created_at)}
+      </time>
     </div>
   )
 
   const body = msg.deleted ? (
-    <p className="text-sm italic text-muted-foreground">Bu mesaj silindi.</p>
+    <p className="text-body italic text-text-muted">Bu mesaj silindi.</p>
   ) : editing ? (
-    <div className="my-1">
+    <div className="mt-1 flex flex-col gap-0.5">
       <textarea
         ref={editRef}
         value={draft}
@@ -126,50 +135,69 @@ function MessageItemInner({
         }}
         rows={Math.min(10, draft.split('\n').length)}
         maxLength={4000}
-        className="w-full resize-none rounded-lg bg-input px-4 py-2.5 text-foreground focus:outline-none"
+        aria-label="Mesajı düzenle"
+        className="w-full resize-none rounded-md border border-brand bg-input px-3 py-2 text-body text-text focus:outline-none"
       />
-      <p className="text-xs text-muted-foreground">
-        iptal için <b className="text-[hsl(200_100%_65%)]">esc</b> • kaydetmek için{' '}
-        <b className="text-[hsl(200_100%_65%)]">enter</b>
+      <p className="text-[11px] leading-4 text-text-muted">
+        kaydetmek için <b className="font-semibold text-text">Enter</b>, iptal için{' '}
+        <b className="font-semibold text-text">Esc</b>
       </p>
-      {error && <p className="text-xs text-dnd">{error}</p>}
+      {error && <p className="text-meta text-dnd">{error}</p>}
     </div>
   ) : (
     <>
       {msg.content && (
-        <div className={cn('selectable whitespace-pre-wrap break-words leading-[1.375rem]', pending && 'opacity-50')}>
+        <div
+          className={cn(
+            'selectable whitespace-pre-wrap text-body text-text [overflow-wrap:anywhere]',
+            pending && 'opacity-50'
+          )}
+        >
           <Markdown content={msg.content} myUsername={myUsername} />
           {msg.edited_at && (
             <Tooltip label={formatStamp(msg.edited_at)}>
-              <span className="ml-1 text-[10px] text-muted-foreground">(düzenlendi)</span>
+              <span className="ml-1 text-[11px] leading-4 text-text-muted">(düzenlendi)</span>
             </Tooltip>
           )}
         </div>
       )}
       {msg.file_url &&
         (isImage(msg.file_type) ? (
-          <a href={msg.file_url} target="_blank" rel="noreferrer" className="mt-1 block w-fit">
+          <a
+            href={msg.file_url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 block w-fit max-w-[min(400px,100%)] overflow-hidden rounded-lg border border-border"
+          >
             <img
               src={msg.file_url}
               alt={msg.file_name ?? ''}
               loading="lazy"
-              className="max-h-[300px] max-w-[min(400px,100%)] rounded-lg object-contain"
+              className="block max-h-[300px] max-w-full object-contain"
             />
           </a>
         ) : (
-          <div className="mt-1 flex w-fit max-w-[420px] items-center gap-3 rounded-lg border border-black/30 bg-sidebar p-3">
-            <FileText className="h-8 w-8 shrink-0 text-brand" />
+          <div className="mt-2 flex w-full max-w-[400px] items-center gap-3 rounded-md border border-border bg-input p-3">
+            <FileText className="h-7 w-7 shrink-0 text-text-muted" />
             <a
               href={msg.file_url}
               target="_blank"
               rel="noreferrer"
-              className="truncate text-[hsl(200_100%_65%)] hover:underline"
+              className="min-w-0 flex-1 truncate text-label font-semibold text-link hover:underline"
             >
               {msg.file_name ?? 'Dosya'}
             </a>
-            <a href={msg.file_url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-header">
-              <Download className="h-5 w-5" />
-            </a>
+            <Tooltip label="İndir">
+              <a
+                href={msg.file_url}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="İndir"
+                className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-sm text-text-muted hover:bg-hover hover:text-header"
+              >
+                <Download className="h-4 w-4" />
+              </a>
+            </Tooltip>
           </div>
         ))}
     </>
@@ -181,98 +209,80 @@ function MessageItemInner({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              'group relative pr-12 hover:bg-[hsl(228_6%_19%)]',
-              continuation ? 'py-0.5' : 'mt-[17px] py-0.5',
-              mentioned && 'border-l-2 border-idle bg-idle/10 hover:bg-idle/15'
+              'group relative grid grid-cols-[40px_minmax(0,1fr)] gap-4 px-4 transition-colors duration-fast hover:bg-hover',
+              continuation ? 'py-px' : 'py-1.5',
+              mentioned && 'border-l-2 border-brand bg-brand-soft pl-[14px] hover:bg-brand-soft'
             )}
           >
             {continuation ? (
-              <div className="flex">
-                <span className="invisible w-[72px] shrink-0 pt-1 text-right pr-3 text-[11px] text-muted-foreground group-hover:visible">
-                  {format(new Date(msg.created_at), 'HH:mm')}
-                </span>
-                <div className="min-w-0 flex-1">{body}</div>
-              </div>
+              <time
+                dateTime={msg.created_at}
+                className="select-none text-right font-mono text-[11px] leading-[21px] text-text-muted opacity-0 group-hover:opacity-100"
+              >
+                {format(new Date(msg.created_at), 'HH:mm')}
+              </time>
             ) : (
-              <div className="flex">
-                <div className="w-[72px] shrink-0 pl-4 pt-0.5">
-                  <UserCard userId={msg.author_id} role={authorRole}>
-                    <button className="rounded-full active:translate-y-px">
-                      <Avatar
-                        src={msg.author?.avatar_url}
-                        name={name}
-                        seed={msg.author_id}
-                        size={40}
-                      />
-                    </button>
-                  </UserCard>
-                </div>
-                <div className="min-w-0 flex-1">
-                  {header}
-                  {body}
-                </div>
+              <div className="grid place-items-start justify-center pt-0.5">
+                <UserCard userId={msg.author_id} role={authorRole}>
+                  <button className="rounded-full active:translate-y-px" aria-label={`${name} profili`}>
+                    <Avatar src={msg.author?.avatar_url} name={name} seed={msg.author_id} size={40} />
+                  </button>
+                </UserCard>
               </div>
             )}
+            <div className="flex min-w-0 flex-col gap-0.5">
+              {!continuation && header}
+              {body}
+            </div>
 
+            {/* Üzerine gelince sağ üstte floating araç çubuğu; aynı eylemler sağ tık menüsünde. */}
             {!editing && !pending && (canEdit || canDelete) && (
-              <div className="absolute -top-4 right-4 hidden overflow-hidden rounded-md border border-black/30 bg-chat shadow group-hover:flex">
+              <div className="absolute -top-3.5 right-4 z-[1] hidden items-center gap-0.5 rounded-md border border-border bg-floating p-0.5 shadow-md group-hover:flex">
                 {canEdit && (
-                  <Tooltip label="Düzenle">
-                    <button
-                      aria-label="Düzenle"
-                      onClick={() => {
-                        setDraft(msg.content)
-                        setEditing(true)
-                      }}
-                      className="p-1.5 text-muted-foreground hover:bg-hover hover:text-header"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
+                  <IconButton size="sm" label="Düzenle" onClick={startEdit}>
+                    <Pencil />
+                  </IconButton>
                 )}
                 {canDelete && (
-                  <Tooltip label="Sil (Shift ile onaysız)">
-                    <button
-                      aria-label="Sil"
-                      onClick={(e) => {
-                        if (e.shiftKey) void deleteMessage(target, msg.id)
-                        else setConfirmDelete(true)
-                      }}
-                      className="p-1.5 text-dnd hover:bg-hover"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </Tooltip>
+                  <IconButton
+                    size="sm"
+                    danger
+                    label="Sil"
+                    sub="Shift ile onaysız sil"
+                    onClick={(e) => {
+                      if (e.shiftKey) void deleteMessage(target, msg.id)
+                      else setConfirmDelete(true)
+                    }}
+                  >
+                    <Trash2 />
+                  </IconButton>
                 )}
               </div>
             )}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent className="w-[212px]">
           {msg.content && !msg.deleted && (
             <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(msg.content)}>
-              <Copy className="h-4 w-4" /> Metni kopyala
+              <Copy /> Metni kopyala
             </ContextMenuItem>
           )}
           {canEdit && (
-            <ContextMenuItem
-              onSelect={() => {
-                setDraft(msg.content)
-                setEditing(true)
-              }}
-            >
-              <Pencil className="h-4 w-4" /> Mesajı düzenle
+            <ContextMenuItem onSelect={startEdit}>
+              <Pencil /> Mesajı düzenle
             </ContextMenuItem>
           )}
-          {canDelete && (
-            <ContextMenuItem danger onSelect={() => setConfirmDelete(true)}>
-              <Trash2 className="h-4 w-4" /> Mesajı sil
-            </ContextMenuItem>
-          )}
-          <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(msg.id)}>
-            Mesaj kimliğini kopyala
+            <Hash /> Mesaj kimliğini kopyala
           </ContextMenuItem>
+          {canDelete && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem danger onSelect={() => setConfirmDelete(true)}>
+                <Trash2 /> Mesajı sil
+              </ContextMenuItem>
+            </>
+          )}
         </ContextMenuContent>
       </ContextMenu>
 
@@ -281,12 +291,12 @@ function MessageItemInner({
         onOpenChange={setConfirmDelete}
         title="Mesajı Sil"
         description="Bu mesajı silmek istediğinden emin misin?"
-        confirmLabel="Sil"
+        confirmLabel="Mesajı Sil"
         onConfirm={() => deleteMessage(target, msg.id)}
       >
-        <div className="mt-3 rounded-md bg-sidebar p-3 text-sm shadow-inner">
-          <div className="font-medium text-header">{name}</div>
-          <div className="line-clamp-4 whitespace-pre-wrap break-words">
+        <div className="rounded-md border border-border bg-sidebar p-3">
+          <div className="text-label font-semibold text-header">{name}</div>
+          <div className="line-clamp-4 whitespace-pre-wrap text-body text-text [overflow-wrap:anywhere]">
             {msg.content || msg.file_name}
           </div>
         </div>
@@ -298,13 +308,15 @@ function MessageItemInner({
 const MessageItem = memo(MessageItemInner)
 export default MessageItem
 
+/** Gün ayırıcı: "14 Ekim 2026" (overline). */
 export function DateDivider({ iso }: { iso: string }): React.JSX.Element {
   return (
-    <div className="relative mx-4 mt-6 mb-2 flex items-center justify-center">
-      <div className="absolute inset-x-0 top-1/2 h-px bg-border" />
-      <span className="relative bg-chat px-2 text-xs font-semibold text-muted-foreground">
+    <div role="separator" className="flex items-center gap-3 px-4 pb-2 pt-4">
+      <span className="h-px flex-1 bg-border" />
+      <span className="text-overline text-text-muted">
         {format(new Date(iso), 'd MMMM yyyy', { locale: tr })}
       </span>
+      <span className="h-px flex-1 bg-border" />
     </div>
   )
 }

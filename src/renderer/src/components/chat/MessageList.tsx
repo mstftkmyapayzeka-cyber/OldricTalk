@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { isSameDay } from 'date-fns'
-import { ServerCrash } from 'lucide-react'
+import { RotateCcw, ServerCrash } from 'lucide-react'
 import type { ChatMessage, ChatTarget, MemberRole } from '@/lib/types'
 import { useMessages } from '@/hooks/queries'
+import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import MessageItem, { DateDivider } from './MessageItem'
 
@@ -25,7 +26,7 @@ export default function MessageList({
   welcome,
   roles
 }: Props): React.JSX.Element {
-  const { data, status, fetchNextPage, hasNextPage, isFetchingNextPage } = useMessages(target)
+  const { data, status, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useMessages(target)
   const topRef = useRef<HTMLDivElement>(null)
 
   // Yeniden eskiye gelen sayfaları ekran için eskiden yeniye çevir.
@@ -51,23 +52,29 @@ export default function MessageList({
   if (status === 'pending') {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <Spinner className="h-8 w-8" />
+        <Spinner size="md" />
       </div>
     )
   }
   if (status === 'error') {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-        <ServerCrash className="h-10 w-10" />
-        <p>Mesajlar yüklenemedi.</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+        <ServerCrash className="h-10 w-10 text-text-muted" />
+        <div>
+          <p className="text-body font-semibold text-text">Mesajlar yüklenemedi.</p>
+          <p className="mt-1 text-label font-normal text-text-muted">Bağlantını kontrol edip yeniden dene.</p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => void refetch()}>
+          <RotateCcw className="h-3.5 w-3.5" /> Yeniden Dene
+        </Button>
       </div>
     )
   }
 
   // flex-col-reverse: kaydırma en altta başlar ve yeni mesajlarda altta kalır.
   return (
-    <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto">
-      <div className="pb-6">
+    <div className="flex min-h-0 flex-1 flex-col-reverse overflow-y-auto overflow-x-hidden">
+      <div className="flex min-h-full flex-col pb-2">
         <div ref={topRef} />
         {hasNextPage ? (
           <div className="flex justify-center py-4">

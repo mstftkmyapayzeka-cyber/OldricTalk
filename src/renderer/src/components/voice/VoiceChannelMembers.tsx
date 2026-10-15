@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { useChannelVoiceMembers } from '@/stores/voiceRoster'
 import { Avatar } from '@/components/ui/avatar'
 
-/** Kenar çubuğunda ses kanalının altındaki kişi listesi. */
+/** Kenar çubuğunda ses kanalının altındaki kişi listesi: 20px avatar, konuşan online halka. */
 export default function VoiceChannelMembers({
   serverId,
   channelId
@@ -17,22 +17,21 @@ export default function VoiceChannelMembers({
   if (members.length === 0) return null
 
   return (
-    <div className="space-y-0.5 pb-1 pl-8" role="list" aria-label="Ses kanalındakiler">
+    <div className="flex flex-col gap-px pb-1 pl-6" role="list" aria-label="Ses kanalındakiler">
       {members.map((m) => {
         const talking = !!speaking?.includes(m.user_id) && !m.muted
         return (
           <div
             key={m.user_id}
-            className="flex h-7 items-center gap-2 rounded-md px-1.5 text-sm text-muted-foreground hover:bg-hover hover:text-foreground"
+            role="listitem"
+            className="flex h-7 items-center gap-2 rounded-sm px-2 text-label font-normal text-text-muted transition-colors duration-fast hover:bg-hover hover:text-text"
           >
-            <span className={cn('rounded-full ring-2', talking ? 'ring-online' : 'ring-transparent')}>
-              <Avatar src={m.avatar_url} name={m.name} seed={m.user_id} size={22} />
-            </span>
-            <span className={cn('flex-1 truncate', talking && 'text-header')}>{m.name}</span>
+            <Avatar src={m.avatar_url} name={m.name} seed={m.user_id} size={20} speaking={talking} />
+            <span className={cn('min-w-0 flex-1 truncate', talking && 'text-header')}>{m.name}</span>
             {m.deafened ? (
-              <HeadphoneOff className="h-3.5 w-3.5 text-dnd" />
+              <HeadphoneOff className="h-3.5 w-3.5 shrink-0 text-dnd" aria-label="Sağırlaştırılmış" />
             ) : (
-              m.muted && <MicOff className="h-3.5 w-3.5 text-dnd" />
+              m.muted && <MicOff className="h-3.5 w-3.5 shrink-0 text-dnd" aria-label="Sessizde" />
             )}
           </div>
         )

@@ -9,11 +9,29 @@ import {
   Tray
 } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const APP_ID = 'com.oldric.talk'
 const isDev = !app.isPackaged
 const ICON = join(__dirname, '../../resources/icon.png')
+
+// Başlık çubuğu `rail` zeminli, Windows düğmeleri `text-muted` (tasarım belirteçleri).
+type Theme = 'light' | 'dark'
+const FRAME: Record<Theme, { color: string; symbolColor: string }> = {
+  light: { color: '#e8e0d9', symbolColor: '#6e5f53' },
+  dark: { color: '#181411', symbolColor: '#ada299' }
+}
+// Pencere açılırken son temayla çizilsin diye renderer'ın seçimi diskte tutulur.
+const themeFile = (): string => join(app.getPath('userData'), 'theme.json')
+
+function loadTheme(): Theme {
+  try {
+    return JSON.parse(readFileSync(themeFile(), 'utf8')).theme === 'dark' ? 'dark' : 'light'
+  } catch {
+    return 'light'
+  }
+}
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -48,17 +66,18 @@ function isSafeExternal(url: string): boolean {
 }
 
 function createWindow(): void {
+  const frame = FRAME[loadTheme()]
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 940,
     minHeight: 560,
     show: false,
-    backgroundColor: '#1e1f22',
+    backgroundColor: frame.color,
     title: 'OldricTalk',
     icon: ICON,
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#1e1f22', symbolColor: '#b5bac1', height: 30 },
+    titleBarOverlay: { ...frame, height: 30 },
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -132,15 +151,28 @@ function applyContentSecurityPolicy(): void {
 
 ipcMain.handle('app:version', () => app.getVersion())
 
+ipcMain.on('app:theme', (_event, theme: Theme) => {
+  if (theme !== 'light' && theme !== 'dark') return
+  if (mainWindow) {
+    mainWindow.setTitleBarOverlay(FRAME[theme])
+    mainWindow.setBackgroundColor(FRAME[theme].color)
+  }
+  try {
+    writeFileSync(themeFile(), JSON.stringify({ theme }))
+  } catch {
+    // yazılamazsa bir sonraki açılış krem temayla başlar
+  }
+})
+
 // Okunmamış sayısını görev çubuğu simgesine rozet olarak yansıtır.
 ipcMain.on('app:badge', (_event, count: number) => {
   if (!mainWindow) return
   if (count > 0) {
     const label = count > 9 ? '9+' : String(count)
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32">
-      <circle cx="16" cy="16" r="16" fill="#f23f43"/>
+      <circle cx="16" cy="16" r="16" fill="#ba2921"/>
       <text x="16" y="22" font-size="${label.length > 1 ? 15 : 19}" font-family="Segoe UI"
-        font-weight="700" fill="#fff" text-anchor="middle">${label}</text></svg>`
+        font-weight="700" fill="#fdfcfb" text-anchor="middle">${label}</text></svg>`
     const img = nativeImage.createFromDataURL(
       'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64')
     )

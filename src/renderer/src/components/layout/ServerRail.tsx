@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { MessageCircle, Plus } from 'lucide-react'
+import { House, Plus } from 'lucide-react'
 import { cn, colorFor, initials } from '@/lib/utils'
 import { useConversations, useServers } from '@/hooks/queries'
 import { useUnread } from '@/hooks/useUnread'
@@ -7,27 +7,32 @@ import { useModal } from '@/stores/modal'
 import { Tooltip } from '@/components/ui/tooltip'
 import { Avatar } from '@/components/ui/avatar'
 
-// Soldaki beyaz gösterge: okunmamışta nokta, üzerine gelince orta, seçiliyken uzun.
-function Pill({ state }: { state: 'none' | 'unread' | 'active' }): React.JSX.Element {
+// Soldaki gösterge: seçiliyken 32px brand, okunmamışta 8px nokta, üzerine gelince 18px.
+function Indicator({ state }: { state: 'none' | 'unread' | 'active' }): React.JSX.Element {
   return (
     <span
       className={cn(
-        'absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-header transition-all',
-        state === 'none' && 'h-0 group-hover:h-5',
-        state === 'unread' && 'h-2 group-hover:h-5',
-        state === 'active' && 'h-10'
+        'absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-xs transition-[height,background-color] duration-base',
+        state === 'active' ? 'h-8 bg-brand' : 'bg-header',
+        state === 'none' && 'h-0 group-hover:h-[18px]',
+        state === 'unread' && 'h-2 group-hover:h-[18px]'
       )}
     />
   )
 }
 
-function RailButton({
+// 48px düğme, radius-xl; üzerine gelince ya da seçiliyken radius-md.
+const railButton =
+  'grid h-12 w-12 place-items-center overflow-hidden text-[15px] font-bold leading-none transition-[background-color,color,border-radius] duration-base'
+
+function RailItem({
   label,
   active,
   unread,
   onClick,
   children,
-  className
+  className,
+  style
 }: {
   label: string
   active: boolean
@@ -35,24 +40,23 @@ function RailButton({
   onClick: () => void
   children: React.ReactNode
   className?: string
+  style?: React.CSSProperties
 }): React.JSX.Element {
   return (
-    <Tooltip label={label} side="right">
-      <div className="group relative flex w-full justify-center">
-        <Pill state={active ? 'active' : unread ? 'unread' : 'none'} />
+    <div className="group relative grid w-full place-items-center">
+      <Indicator state={active ? 'active' : unread ? 'unread' : 'none'} />
+      <Tooltip label={label} side="right">
         <button
           onClick={onClick}
           aria-label={label}
-          className={cn(
-            'flex h-12 w-12 items-center justify-center overflow-hidden transition-all duration-150',
-            active ? 'rounded-2xl' : 'rounded-3xl group-hover:rounded-2xl',
-            className
-          )}
+          aria-current={active ? 'page' : undefined}
+          className={cn(railButton, active ? 'rounded-md' : 'rounded-xl hover:rounded-md', className)}
+          style={style}
         >
           {children}
         </button>
-      </div>
-    </Tooltip>
+      </Tooltip>
+    </div>
   )
 }
 
@@ -68,62 +72,68 @@ export default function ServerRail(): React.JSX.Element {
   const unreadDms = (conversations ?? []).filter((c) => dmUnread.has(c.id)).slice(0, 5)
 
   return (
-    <nav className="no-scrollbar flex w-[72px] shrink-0 flex-col items-center gap-2 overflow-y-auto bg-rail pb-3 pt-1">
-      <RailButton
-        label="Direkt Mesajlar"
+    <nav
+      aria-label="Sunucular"
+      className="no-scrollbar flex w-rail shrink-0 flex-col items-center gap-2 overflow-y-auto bg-rail py-2 [--ot-ring:hsl(var(--rail))]"
+    >
+      <RailItem
+        label="Ana Sayfa"
         active={inHome}
         onClick={() => navigate('/channels/@me')}
-        className={cn(
-          inHome ? 'bg-brand text-white' : 'bg-chat text-foreground group-hover:bg-brand group-hover:text-white'
-        )}
+        className={
+          inHome
+            ? 'bg-brand text-on-brand'
+            : 'bg-floating text-header hover:bg-brand hover:text-on-brand'
+        }
       >
-        <MessageCircle className="h-6 w-6" />
-      </RailButton>
+        <House className="h-[22px] w-[22px]" />
+      </RailItem>
 
       {unreadDms.map((c) => (
-        <Tooltip key={c.id} label={c.other.display_name} side="right">
-          <NavLink to={`/channels/@me/${c.id}`} className="relative">
-            <Avatar src={c.other.avatar_url} name={c.other.display_name} seed={c.other.id} size={48} />
-            <span className="absolute -bottom-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-dnd ring-4 ring-rail" />
-          </NavLink>
-        </Tooltip>
+        <div key={c.id} className="relative grid w-full place-items-center">
+          <Indicator state="unread" />
+          <Tooltip label={c.other.display_name} side="right">
+            <NavLink to={`/channels/@me/${c.id}`} className="relative rounded-full" aria-label={c.other.display_name}>
+              <Avatar src={c.other.avatar_url} name={c.other.display_name} seed={c.other.id} size={48} />
+              <span className="absolute -bottom-0.5 -right-0.5 h-[18px] w-[18px] rounded-full border-[3px] border-rail bg-dnd" />
+            </NavLink>
+          </Tooltip>
+        </div>
       ))}
 
-      <div className="mx-auto h-0.5 w-8 rounded-full bg-chat" />
+      <div role="separator" className="my-1 h-0.5 w-8 shrink-0 rounded-pill bg-border" />
 
       {servers?.map((s) => {
         const active = pathname.startsWith(`/channels/${s.id}`)
         return (
-          <RailButton
+          <RailItem
             key={s.id}
             label={s.name}
             active={active}
             unread={serverUnread.has(s.id)}
             onClick={() => navigate(`/channels/${s.id}`)}
-            className={cn(!s.icon_url && (active ? 'bg-brand' : 'bg-chat group-hover:bg-brand'))}
+            className={cn(!s.icon_url && (active ? 'bg-brand text-on-brand' : 'text-on-avatar'))}
+            style={!s.icon_url && !active ? { background: colorFor(s.id) } : undefined}
           >
             {s.icon_url ? (
               <img src={s.icon_url} alt="" className="h-full w-full object-cover" draggable={false} />
             ) : (
-              <span
-                className="text-[15px] font-medium text-header"
-                style={active ? undefined : { color: colorFor(s.id).replace('45%', '80%') }}
-              >
-                {initials(s.name)}
-              </span>
+              initials(s.name)
             )}
-          </RailButton>
+          </RailItem>
         )
       })}
 
-      <RailButton
-        label="Sunucu Ekle"
-        active={false}
-        onClick={() => open({ type: 'addServer' })}
-        className="bg-chat text-online group-hover:bg-online group-hover:text-white"
-      >
-        <Plus className="h-6 w-6" />
-      </RailButton>
+      <div className="mt-auto w-full pt-2">
+        <RailItem
+          label="Sunucu Ekle"
+          active={false}
+          onClick={() => open({ type: 'addServer' })}
+          className="bg-floating text-online hover:bg-online hover:text-on-online"
+        >
+          <Plus className="h-6 w-6" />
+        </RailItem>
+      </div>
     </nav>
   )
 }

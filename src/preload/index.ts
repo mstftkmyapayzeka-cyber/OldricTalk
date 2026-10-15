@@ -6,7 +6,8 @@ const api = {
   version: (): Promise<string> => ipcRenderer.invoke('app:version'),
   setBadge: (count: number): void => ipcRenderer.send('app:badge', count),
   flashFrame: (): void => ipcRenderer.send('app:flash'),
-  focusWindow: (): void => ipcRenderer.send('app:focus')
+  focusWindow: (): void => ipcRenderer.send('app:focus'),
+  setTheme: (theme: 'light' | 'dark'): void => ipcRenderer.send('app:theme', theme)
 }
 
 contextBridge.exposeInMainWorld('oldric', api)

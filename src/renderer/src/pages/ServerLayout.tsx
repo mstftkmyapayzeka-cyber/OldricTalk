@@ -10,7 +10,7 @@ export default function ServerLayout(): React.JSX.Element {
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center bg-chat">
-        <Spinner />
+        <Spinner size="md" />
       </div>
     )
   }
@@ -20,7 +20,7 @@ export default function ServerLayout(): React.JSX.Element {
   return (
     <>
       <ServerSidebar server={server} />
-      <main className="flex min-w-0 flex-1 flex-col bg-chat">
+      <main className="flex min-w-0 flex-1 flex-col bg-chat [--ot-ring:hsl(var(--chat))]">
         <Outlet />
       </main>
     </>
@@ -35,8 +35,11 @@ export function ServerIndexRedirect(): React.JSX.Element {
   const first = channels?.find((c) => c.type === 'text') ?? channels?.[0]
   if (!first) {
     return (
-      <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        Bu sunucuda henüz kanal yok.
+      <div className="flex flex-1 flex-col items-center justify-center gap-1 px-6 text-center">
+        <p className="text-body font-semibold text-text">Bu sunucuda henüz kanal yok.</p>
+        <p className="text-label font-normal text-text-muted">
+          Sunucu adına tıklayıp “Kanal Oluştur” ile ilk kanalı açabilirsin.
+        </p>
       </div>
     )
   }

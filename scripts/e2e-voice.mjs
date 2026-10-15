@@ -30,7 +30,7 @@ try {
     await b.win.getByPlaceholder('#genel kanalına mesaj gönder').waitFor({ timeout: T })
     await b.win.locator('aside').getByRole('button', { name: serverName }).click()
     await b.win.getByRole('menuitem', { name: /İnsanları Davet Et/ }).click()
-    code = (await b.win.locator('span.font-mono').first().innerText()).trim()
+    code = (await b.win.getByLabel('Davet kodu').innerText()).trim()
     await b.win.keyboard.press('Escape')
 
     await a.win.getByRole('button', { name: 'Sunucu Ekle' }).click()
@@ -84,7 +84,7 @@ try {
     if (denoiseFailed.length) throw new Error(`RNNoise yüklenemedi: ${denoiseFailed[0]}`)
     await a.win.getByRole('button', { name: 'Ses Ayarları' }).click()
     await a.win.getByRole('switch', { name: 'Gürültü engelleme (önerilen)' }).waitFor({ timeout: T })
-    await a.win.getByRole('combobox', { name: 'Mikrofon' }).waitFor({ timeout: T })
+    await a.win.getByRole('button', { name: 'Mikrofon', exact: true }).waitFor({ timeout: T })
     // Sahte mikrofonun bip sesi ölçeri hareket ettirmeli.
     await a.win.waitForFunction(
       () => parseFloat(document.querySelector('[aria-label="Mikrofon seviyesi"] > div')?.style.width ?? '0') > 5,
@@ -98,7 +98,7 @@ try {
   })
 
   await step('Mehmet\'in sesi Ayşe\'ye ulaşır', async () => {
-    await a.win.locator('main .ring-online').getByText('Mehmet (test)').waitFor({ timeout: T })
+    await a.win.locator('main .border-online').getByText('Mehmet (test)').waitFor({ timeout: T })
   })
 
   await step('Mehmet sessize alır; Ayşe simgeyi görür', async () => {
@@ -108,7 +108,7 @@ try {
 
   await step('Ayşe\'nin sesi Mehmet\'e ulaşır (konuşma halkası); kamera/ekran düğmesi yok', async () => {
     // Sahte mikrofon düzenli bip sesi üretir; SFU üzerinden gelince Ayşe'nin karosu yeşillenir.
-    await b.win.locator('main .ring-online').getByText('Ayşe (test)').waitFor({ timeout: T })
+    await b.win.locator('main .border-online').getByText('Ayşe (test)').waitFor({ timeout: T })
     await shot(dir, b, 'ses-03-konusuyor.png')
     for (const name of ['Kamerayı Aç', 'Ekran Paylaş']) {
       if (await a.win.getByRole('button', { name }).count()) throw new Error(`"${name}" düğmesi hâlâ var`)
@@ -140,7 +140,7 @@ try {
     await a.win.getByText('Ses Bağlandı').waitFor({ timeout: T })
     await b.win.getByRole('link', { name: 'Genel', exact: true }).click()
     await b.win.getByText(/Mikrofona erişilemedi/).waitFor({ timeout: T })
-    await b.win.locator('main .ring-online').getByText('Ayşe (test)').waitFor({ timeout: T })
+    await b.win.locator('main .border-online').getByText('Ayşe (test)').waitFor({ timeout: T })
     await shot(dir, b, 'ses-05-mikrofonsuz.png')
   })
 } catch (err) {

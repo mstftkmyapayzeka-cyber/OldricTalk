@@ -43,7 +43,7 @@ try {
   await step('Davet kodu alınır', async () => {
     await a.win.locator('aside').getByRole('button', { name: serverName }).click()
     await a.win.getByRole('menuitem', { name: /İnsanları Davet Et/ }).click()
-    code = (await a.win.locator('span.font-mono').first().innerText()).trim()
+    code = (await a.win.getByLabel('Davet kodu').innerText()).trim()
     await shot(a, '04-davet.png')
     await a.win.keyboard.press('Escape')
     if (!/^[a-f0-9]{12}$/.test(code)) throw new Error(`davet kodu okunamadı: ${code}`)
@@ -75,19 +75,19 @@ try {
   })
 
   await step('Mehmet arkadaşlık isteği gönderir, Ayşe kabul eder', async () => {
-    await b.win.getByRole('button', { name: 'Direkt Mesajlar' }).click()
+    await b.win.getByRole('button', { name: 'Ana Sayfa' }).click()
     await b.win.getByRole('button', { name: 'Arkadaş Ekle' }).click()
-    await b.win.getByPlaceholder('Kullanıcı adı yazarak arkadaş ekleyebilirsin.').fill('test.ayse')
+    await b.win.getByLabel('Kullanıcı adı').fill('test.ayse')
     await b.win.getByRole('button', { name: 'Arkadaşlık İsteği Gönder' }).click()
     const result = b.win.getByText(/arkadaşlık isteği gönderildi|zaten|artık arkadaşsınız/)
     await result.waitFor({ timeout: T })
     const alreadyFriends = /zaten arkadaşın/.test(await result.innerText())
     await shot(b, '08-istek-gonderildi.png')
 
-    await a.win.getByRole('button', { name: 'Direkt Mesajlar' }).click()
+    await a.win.getByRole('button', { name: 'Ana Sayfa' }).click()
     if (!alreadyFriends) {
       await a.win.getByRole('button', { name: /Bekleyen/ }).click()
-      const accept = a.win.getByRole('button', { name: 'Kabul et' }).first()
+      const accept = a.win.getByRole('button', { name: 'Kabul Et' }).first()
       await accept.waitFor({ timeout: T })
       await shot(a, '09-bekleyen.png')
       await accept.click()

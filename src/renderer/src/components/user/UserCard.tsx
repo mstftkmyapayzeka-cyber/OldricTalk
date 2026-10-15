@@ -1,22 +1,32 @@
 import { useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { useQueryClient } from '@tanstack/react-query'
+import { Ban, Crown, MessageCircle, MoreVertical, Shield, UserPlus, UserRound } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { errorMessage } from '@/lib/errors'
 import { displayStatus, STATUS_LABEL } from '@/lib/presence'
-import { colorFor } from '@/lib/utils'
+import { cn, colorFor } from '@/lib/utils'
 import type { MemberRole, Profile } from '@/lib/types'
 import { qk, useFriendships, useProfile } from '@/hooks/queries'
 import { useOpenDm } from '@/hooks/useOpenDm'
 import { useUserId } from '@/stores/auth'
-import { Avatar } from '@/components/ui/avatar'
+import { Avatar, StatusDot } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/menu'
+import { Tooltip } from '@/components/ui/tooltip'
 
-const ROLE_LABEL: Record<MemberRole, string> = {
-  admin: 'Yönetici',
-  moderator: 'Moderatör',
-  guest: 'Üye'
+// Rol etiketi: renk + ikon + sözcük.
+const ROLE_TAG: Record<MemberRole, { label: string; Icon: typeof Crown; className: string }> = {
+  admin: { label: 'Yönetici', Icon: Crown, className: 'bg-dnd-soft text-role-admin' },
+  moderator: { label: 'Moderatör', Icon: Shield, className: 'bg-selected text-role-mod' },
+  guest: { label: 'Üye', Icon: UserRound, className: 'bg-selected text-text' }
 }
 
 function Card({ userId, role }: { userId: string; role?: MemberRole }): React.JSX.Element {
@@ -30,68 +40,109 @@ function Card({ userId, role }: { userId: string; role?: MemberRole }): React.JS
   if (!profile) {
     return (
       <div className="flex h-40 items-center justify-center">
-        <Spinner />
+        <Spinner size="md" />
       </div>
     )
   }
   const p: Profile = profile
   const rel = friendships.find((f) => f.requester_id === p.id || f.addressee_id === p.id)
   const status = displayStatus(p)
+  const tag = role ? ROLE_TAG[role] : null
 
-  async function addFriend(): Promise<void> {
-    const { error } = await supabase.rpc('send_friend_request', { p_username: p.username })
-    setNote(error ? errorMessage(error) : 'Arkadaşlık isteği gönderildi.')
+  async function call(fn: 'send_friend_request' | 'block_user', ok: string): Promise<void> {
+    const { error } =
+      fn === 'send_friend_request'
+        ? await supabase.rpc(fn, { p_username: p.username })
+        : await supabase.rpc(fn, { p_other: p.id })
+    setNote(error ? errorMessage(error) : ok)
     void qc.invalidateQueries({ queryKey: qk.friendships })
+    void qc.invalidateQueries({ queryKey: qk.blocks })
   }
 
   return (
     <>
-      <div className="h-[60px]" style={{ background: colorFor(p.id) }} />
+      <div className="h-16" style={{ background: colorFor(p.id) }} />
       <div className="px-4 pb-4">
-        <div className="-mt-10 mb-3 w-fit rounded-full p-1.5 [background:hsl(var(--floating))]">
-          <Avatar
-            src={p.avatar_url}
-            name={p.display_name}
-            seed={p.id}
-            size={80}
-            status={status}
-            ringClass="ring-floating"
-          />
+        <div className="-mt-10 w-fit rounded-full shadow-[0_0_0_6px_hsl(var(--floating))]">
+          <Avatar src={p.avatar_url} name={p.display_name} seed={p.id} size={80} status={status} />
         </div>
-        <div className="rounded-lg bg-[hsl(225_7%_11%)] p-3">
-          <div className="text-xl font-bold text-header">{p.display_name}</div>
-          <div className="text-sm text-foreground">@{p.username}</div>
-          <div className="mt-2 text-sm text-muted-foreground">
-            {p.custom_status || STATUS_LABEL[status]}
-          </div>
-          {role && (
-            <div className="mt-3 border-t border-border pt-3 text-xs">
-              <span className="font-bold uppercase text-muted-foreground">Rol</span>
-              <div className="mt-1 text-foreground">{ROLE_LABEL[role]}</div>
-            </div>
+        <div className="mt-3 flex flex-col gap-px">
+          <span className="selectable truncate text-[18px] font-bold leading-6 text-header">{p.display_name}</span>
+          <span className="selectable text-label font-normal text-text-muted">@{p.username}</span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {tag && (
+            <span
+              className={cn(
+                'inline-flex h-5 items-center gap-1 rounded-xs px-2 text-[11px] font-bold leading-[14px]',
+                tag.className
+              )}
+            >
+              <tag.Icon className="h-3 w-3" /> {tag.label}
+            </span>
           )}
-          {p.id !== me && (
-            <div className="mt-3 flex gap-2">
-              <Button size="sm" className="flex-1" onClick={() => void openDm(p.id)}>
-                Mesaj Gönder
-              </Button>
-              {!rel && (
-                <Button size="sm" variant="success" onClick={() => void addFriend()}>
-                  Arkadaş Ekle
+          <span className="flex items-center gap-[5px] text-meta text-text-muted">
+            <StatusDot status={status} />
+            {STATUS_LABEL[status]}
+          </span>
+        </div>
+        {p.custom_status && <p className="selectable mt-2 text-label font-normal text-text">{p.custom_status}</p>}
+
+        {p.id !== me && (
+          <>
+            <div className="my-3 h-px bg-border" />
+            <div className="flex items-center gap-2">
+              {rel?.status === 'accepted' ? (
+                <Button size="sm" className="flex-1" onClick={() => void openDm(p.id)}>
+                  <MessageCircle className="h-4 w-4" /> Mesaj Gönder
+                </Button>
+              ) : rel?.status === 'pending' ? (
+                <Button size="sm" variant="secondary" className="flex-1" disabled>
+                  Arkadaşlık isteği bekliyor.
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="success"
+                  className="flex-1"
+                  onClick={() => void call('send_friend_request', 'Arkadaşlık isteği gönderildi.')}
+                >
+                  <UserPlus className="h-4 w-4" /> Arkadaş Ekle
                 </Button>
               )}
+              <DropdownMenu>
+                <Tooltip label="Diğer">
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      aria-label="Diğer"
+                      className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full bg-sidebar text-text-muted transition-colors duration-fast hover:bg-hover hover:text-header data-[state=open]:bg-hover"
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </Tooltip>
+                <DropdownMenuContent align="end">
+                  {rel?.status !== 'accepted' && (
+                    <DropdownMenuItem onSelect={() => void openDm(p.id)}>
+                      <MessageCircle /> Mesaj Gönder
+                    </DropdownMenuItem>
+                  )}
+                  {rel?.status !== 'accepted' && <DropdownMenuSeparator />}
+                  <DropdownMenuItem danger onSelect={() => void call('block_user', 'Kullanıcıyı engelledin.')}>
+                    <Ban /> Engelle
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-          )}
-          {rel?.status === 'pending' && (
-            <p className="mt-2 text-xs text-muted-foreground">Arkadaşlık isteği bekliyor.</p>
-          )}
-          {note && <p className="mt-2 text-xs text-muted-foreground">{note}</p>}
-        </div>
+          </>
+        )}
+        {note && <p className="mt-2 text-meta text-text-muted">{note}</p>}
       </div>
     </>
   )
 }
 
+/** Ada ya da avatara tıklayınca açılan profil kartı: 320px, 64px renkli şerit, 80px avatar. */
 export default function UserCard({
   userId,
   role,
@@ -100,7 +151,7 @@ export default function UserCard({
 }: {
   userId: string
   role?: MemberRole
-  side?: 'right' | 'left'
+  side?: 'right' | 'left' | 'bottom'
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -109,9 +160,10 @@ export default function UserCard({
       <Popover.Portal>
         <Popover.Content
           side={side}
+          align={side === 'bottom' ? 'end' : 'center'}
           sideOffset={10}
           collisionPadding={12}
-          className="z-50 w-[300px] overflow-hidden rounded-lg bg-floating shadow-2xl animate-fade-in"
+          className="z-50 w-[320px] overflow-hidden rounded-lg border border-border bg-floating shadow-md animate-fade-in [--ot-ring:hsl(var(--floating))]"
         >
           <Card userId={userId} role={role} />
         </Popover.Content>

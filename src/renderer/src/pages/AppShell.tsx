@@ -10,6 +10,9 @@ import { useUnread } from '@/hooks/useUnread'
 import { useUserId } from '@/stores/auth'
 import { useTyping } from '@/stores/typing'
 import { FullScreenLoader } from '@/components/ui/spinner'
+import { CloudOff, RotateCcw } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty'
 import ServerRail from '@/components/layout/ServerRail'
 import ModalHost from '@/components/modals/ModalHost'
 
@@ -80,11 +83,21 @@ export default function AppShell(): React.JSX.Element {
   if (profile.isLoading || servers.isLoading) return <FullScreenLoader label="Bağlanılıyor…" />
   if (profile.error) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-        <p>Profil yüklenemedi.</p>
-        <button className="text-brand hover:underline" onClick={() => void supabase.auth.signOut()}>
-          Çıkış yap
-        </button>
+      <div className="grid h-full place-items-center bg-chat">
+        <EmptyState
+          art={<CloudOff className="h-10 w-10" />}
+          title="Profil yüklenemedi."
+          sub="Sunucuya ulaşamadık. İnternet bağlantını kontrol edip yeniden dene."
+        >
+          <div className="flex gap-2">
+            <Button onClick={() => void profile.refetch()}>
+              <RotateCcw className="h-4 w-4" /> Yeniden dene
+            </Button>
+            <Button variant="ghost" onClick={() => void supabase.auth.signOut()}>
+              Çıkış yap
+            </Button>
+          </div>
+        </EmptyState>
       </div>
     )
   }
@@ -92,7 +105,7 @@ export default function AppShell(): React.JSX.Element {
   return (
     <div className="flex h-full">
       <ServerRail />
-      <div className="flex min-w-0 flex-1 overflow-hidden rounded-tl-lg">
+      <div className="flex min-w-0 flex-1 overflow-hidden">
         <Outlet />
       </div>
       <ModalHost />

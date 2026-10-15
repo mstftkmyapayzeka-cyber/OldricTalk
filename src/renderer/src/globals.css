@@ -2,30 +2,121 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Yazı tipleri uygulamayla paketlenir; internet gerekmez. */
+@font-face {
+  font-family: 'Figtree';
+  src: url('./assets/fonts/Figtree-Variable.woff2') format('woff2');
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('./assets/fonts/JetBrainsMono-Variable.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
+  /* OldricTalk tasarım sistemi belirteçleri (tokens.json). Renkler kanal biçiminde:
+     hsl(var(--brand)) ya da Tailwind'de bg-brand/20. Krem ana tema, koyu tema data-theme="dark". */
   :root {
-    /* Katmanlar: rail (sunucu şeridi) < sidebar < chat; floating = menüler/modallar */
-    --rail: 228 7% 13%;
-    --sidebar: 225 6% 18%;
-    --chat: 228 6% 21%;
-    --floating: 220 8% 7%;
-    --hover: 228 6% 26%;
-    --selected: 228 6% 30%;
-    --input: 225 7% 25%;
-    --border: 225 6% 26%;
+    --rail: 28 24% 88%;
+    --sidebar: 30 30% 93%;
+    --chat: 36 44% 98%;
+    --floating: 0 0% 100%;
+    --input: 30 24% 96%;
+    --hover: 28 26% 90%;
+    --selected: 28 28% 85%;
+    --border: 28 18% 78%;
+    --border-strong: 26 16% 46%;
+    --brand: 19 88% 35%;
+    --brand-hover: 19 90% 28%;
+    --brand-soft: 28 92% 93%;
+    --on-brand: 36 60% 98%;
+    --focus: 19 88% 38%;
+    --header: 24 30% 14%;
+    --text: 24 20% 22%;
+    --text-muted: 26 14% 38%;
+    --link: 198 80% 33%;
+    --online: 154 62% 30%;
+    --on-online: 150 30% 98%;
+    --idle: 38 88% 36%;
+    --dnd: 3 70% 43%;
+    --on-dnd: 6 40% 99%;
+    --dnd-soft: 6 88% 95%;
+    --offline: 26 10% 42%;
+    --role-admin: 10 72% 40%;
+    --role-mod: 210 70% 40%;
+    --avatar-1: 14 55% 40%;
+    --avatar-2: 152 42% 30%;
+    --avatar-3: 205 52% 38%;
+    --avatar-4: 276 34% 42%;
+    --avatar-5: 36 62% 33%;
+    --avatar-6: 192 48% 31%;
+    --on-avatar: 36 60% 98%;
 
-    --text: 220 9% 87%;
-    --text-muted: 218 8% 61%;
-    --header: 220 13% 96%;
+    --shadow-sm: 0 1px 2px rgb(60 40 20 / 0.1);
+    --shadow-md: 0 8px 20px rgb(60 40 20 / 0.14);
+    --shadow-lg: 0 24px 56px rgb(60 40 20 / 0.2);
+    --shadow-brand: 0 6px 18px rgb(168 60 11 / 0.22);
 
-    /* OldricTalk vurgusu: mor */
-    --brand: 255 82% 66%;
-    --brand-hover: 255 70% 60%;
+    --titlebar-h: 30px;
+    --titlebar-controls-w: 140px;
+    --rail-w: 72px;
+    --sidebar-w: 240px;
+    --members-w: 240px;
+    --row-h: 34px;
+    --user-panel-h: 52px;
+    --voice-panel-h: 58px;
+    --composer-h: 44px;
+    --modal-w: 460px;
+    --modal-w-lg: 560px;
+    --content-max: 840px;
 
-    --online: 142 65% 39%;
-    --idle: 38 86% 57%;
-    --dnd: 358 87% 60%;
-    --offline: 218 8% 50%;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --font-sans: 'Figtree', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+    color-scheme: light;
+  }
+
+  [data-theme='dark'] {
+    --rail: 24 16% 8%;
+    --sidebar: 24 14% 11%;
+    --chat: 24 12% 14%;
+    --floating: 24 13% 19%;
+    --input: 24 15% 9%;
+    --hover: 24 11% 21%;
+    --selected: 24 12% 26%;
+    --border: 24 10% 29%;
+    --border-strong: 24 10% 52%;
+    --brand: 25 92% 58%;
+    --brand-hover: 25 88% 50%;
+    --brand-soft: 25 40% 18%;
+    --on-brand: 24 45% 10%;
+    --focus: 25 95% 64%;
+    --header: 32 30% 97%;
+    --text: 28 16% 85%;
+    --text-muted: 26 11% 64%;
+    --link: 192 72% 60%;
+    --online: 152 48% 48%;
+    --on-online: 152 45% 9%;
+    --idle: 40 95% 58%;
+    --dnd: 4 80% 69%;
+    --on-dnd: 4 55% 12%;
+    --dnd-soft: 4 35% 19%;
+    --offline: 26 9% 61%;
+    --role-admin: 14 84% 66%;
+    --role-mod: 205 78% 64%;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.45);
+    --shadow-md: 0 8px 20px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 24px 56px rgb(0 0 0 / 0.6);
+    --shadow-brand: 0 6px 18px rgb(246 131 49 / 0.26);
+
+    color-scheme: dark;
   }
 
   html,
@@ -35,14 +126,20 @@
   }
 
   body {
-    @apply bg-chat text-foreground font-sans antialiased;
-    font-size: 15px;
+    @apply bg-chat font-sans text-body text-text antialiased;
     overflow: hidden;
     user-select: none;
+    text-rendering: optimizeLegibility;
   }
 
   * {
     @apply border-border;
+  }
+
+  /* Klavye odak halkası her yüzeyde görünür: 2px focus, 2px boşluk. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--focus));
+    outline-offset: 2px;
   }
 
   /* Sohbet metni seçilebilir */
@@ -60,14 +157,17 @@
   }
 
   ::-webkit-scrollbar {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
   }
   ::-webkit-scrollbar-thumb {
     background-clip: padding-box;
-    border: 4px solid transparent;
-    border-radius: 8px;
-    background-color: hsl(var(--floating));
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-color: hsl(var(--border));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--border-strong));
   }
   ::-webkit-scrollbar-track {
     background: transparent;
@@ -80,9 +180,60 @@
     background-color: transparent;
   }
   .thin-scroll:hover::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--floating));
+    background-color: hsl(var(--border));
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+}
+
+@layer components {
+  /* Kaydırıcı: 6px input zeminli iz, brand dolgu (--fill), 16px header topuz. */
+  .range {
+    --fill: 50%;
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .range::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    border: 1px solid hsl(var(--border));
+    background: linear-gradient(to right, hsl(var(--brand)) var(--fill), hsl(var(--input)) var(--fill));
+  }
+  .range::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -6px;
+    border-radius: 50%;
+    background: hsl(var(--header));
+    box-shadow: var(--shadow-sm);
+    transition: scale 90ms var(--ease);
+  }
+  .range:hover::-webkit-slider-thumb {
+    scale: 1.12;
+  }
+}
+
+@layer utilities {
+  /* Kapalı mikrofon/kulaklık: ikonun üzerine dnd renkli çizgi (renk + şekil). */
+  .slash {
+    position: relative;
+  }
+  .slash::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 22px;
+    height: 2px;
+    border-radius: 999px;
+    background: hsl(var(--dnd));
+    translate: -50% -50%;
+    rotate: -45deg;
+    box-shadow: 0 0 0 1.5px var(--slash-ring, hsl(var(--rail)));
   }
 }
