@@ -3,6 +3,7 @@ import { PhoneOff, SignalHigh, SignalLow, SignalMedium, SlidersHorizontal, Trian
 import { clearVoiceError, leaveVoice, useVoice, type VoiceQuality } from '@/lib/voice'
 import { cn } from '@/lib/utils'
 import { useModal } from '@/stores/modal'
+import { useAudioSettings } from '@/stores/audioSettings'
 import { Tooltip } from '@/components/ui/tooltip'
 
 /** Bağlantı kalitesi hem renk hem sinyal ikonuyla: iyi online, orta idle, kötü dnd. */
@@ -30,11 +31,30 @@ function qualityText(q: VoiceQuality | null): string | null {
 const smallIconBtn =
   'grid h-[26px] w-[26px] shrink-0 place-items-center rounded-sm text-text-muted transition-colors duration-fast hover:bg-hover hover:text-header'
 
+/** Bas-konuş: atanan tuş ve basılıyken yanan nokta (renk + "ses gidiyor" sözü). */
+function PttStatus(): React.JSX.Element {
+  const key = useAudioSettings((s) => s.pttKey)
+  const down = useVoice((s) => s.pttDown)
+  const muted = useVoice((s) => s.muted)
+  return (
+    <p className="flex min-w-0 items-center gap-1.5 text-meta text-text-muted" aria-live="polite">
+      <span
+        aria-hidden
+        className={cn('h-2 w-2 shrink-0 rounded-full', down && !muted ? 'bg-online' : 'bg-border-strong')}
+      />
+      <span className="truncate">
+        {!key ? 'Bas-konuş tuşu atanmadı' : down && !muted ? 'Ses gidiyor' : `Bas-konuş: ${key.label}`}
+      </span>
+    </p>
+  )
+}
+
 /** Kenar çubuğunun altında, yalnızca sesliyken görünen "Ses Bağlandı" paneli (58px, rail zemin). */
 export default function VoicePanel(): React.JSX.Element | null {
   const v = useVoice()
   const navigate = useNavigate()
   const openModal = useModal((s) => s.open)
+  const ptt = useAudioSettings((s) => s.inputMode === 'ptt')
 
   if (v.status === 'idle') {
     if (!v.error) return null
@@ -74,6 +94,7 @@ export default function VoicePanel(): React.JSX.Element | null {
               Bağlantı: {detail}
             </p>
           )}
+          {ptt && <PttStatus />}
         </div>
         <Tooltip label="Ses Ayarları">
           <button

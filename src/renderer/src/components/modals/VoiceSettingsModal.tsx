@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Headphones, RotateCcw } from 'lucide-react'
+import { Headphones, RotateCcw, TriangleAlert } from 'lucide-react'
 import { MicPipeline } from '@/lib/micPipeline'
 import { cn } from '@/lib/utils'
 import { DEFAULT_AUDIO, setAudioSettings, useAudioSettings } from '@/stores/audioSettings'
@@ -53,6 +53,145 @@ function DeviceSelect({
   )
 }
 
+/** Klavye düzenine göre tuş adı (Türkçe Q'da "Ç", "Ş" doğru görünsün). */
+function keyLabelFromEvent(e: KeyboardEvent): string | null {
+  const named: Record<string, string> = {
+    ' ': 'Boşluk',
+    Control: 'Ctrl',
+    AltGraph: 'AltGr',
+    CapsLock: 'Caps Lock',
+    Backspace: 'Geri Sil',
+    ArrowUp: 'Yukarı Ok',
+    ArrowDown: 'Aşağı Ok',
+    ArrowLeft: 'Sol Ok',
+    ArrowRight: 'Sağ Ok'
+  }
+  let label = named[e.key] ?? (e.key.length === 1 ? e.key.toLocaleUpperCase('tr') : e.key)
+  if (e.location === 2 && ['Ctrl', 'Shift', 'Alt'].includes(label)) label = `Sağ ${label}`
+  if (e.location === 3) label = `Num ${label}`
+  return label === 'Escape' || label === 'Unidentified' ? null : label
+}
+
+/** Giriş modu: ses etkinliği ya da bas-konuş (+ tuş atama). */
+function InputModeSection(): React.JSX.Element {
+  const s = useAudioSettings()
+  const [capturing, setCapturing] = useState(false)
+  const lastLabel = useRef<string | null>(null)
+  const supported = !!window.oldric?.capturePtt
+
+  // Tuş atanırken basılan tuş pencerede başka bir şey yapmasın (Esc pencereyi kapatmasın).
+  useEffect(() => {
+    if (!capturing) return
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      lastLabel.current = keyLabelFromEvent(e)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [capturing])
+
+  useEffect(() => () => window.oldric?.cancelPttCapture(), [])
+
+  async function assign(): Promise<void> {
+    if (!window.oldric) return
+    lastLabel.current = null
+    setCapturing(true)
+    const result = await window.oldric.capturePtt()
+    // Pencere odaktaysa tuş adını klavye düzeninden al (ana süreçten gelen ad yedek).
+    await new Promise((r) => setTimeout(r, 60))
+    setCapturing(false)
+    if (!result) return
+    const label = result.kind === 'key' ? (lastLabel.current ?? result.label) : result.label
+    setAudioSettings({ pttKey: { kind: result.kind, code: result.code, label }, inputMode: 'ptt' })
+  }
+
+  function cancel(): void {
+    window.oldric?.cancelPttCapture()
+    setCapturing(false)
+  }
+
+  const modes = [
+    { id: 'voice' as const, label: 'Ses Etkinliği' },
+    { id: 'ptt' as const, label: 'Bas-Konuş' }
+  ]
+
+  return (
+    <div className="mt-5 flex flex-col gap-1.5">
+      <Overline>Giriş modu</Overline>
+      <div role="radiogroup" aria-label="Giriş modu" className="flex items-center gap-1">
+        {modes.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            role="radio"
+            aria-checked={s.inputMode === m.id}
+            disabled={m.id === 'ptt' && !supported}
+            onClick={() => setAudioSettings({ inputMode: m.id })}
+            className={cn(
+              'inline-flex h-7 items-center rounded-sm px-3 text-label font-semibold transition-colors duration-fast disabled:opacity-45',
+              s.inputMode === m.id ? 'bg-selected text-header' : 'text-text-muted hover:bg-hover hover:text-text'
+            )}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <span className="text-meta text-text-muted">
+        {s.inputMode === 'ptt'
+          ? 'Ses yalnızca tuş basılıyken gider; uygulama arka plandayken de çalışır.'
+          : 'Konuştuğunda mikrofon kendiliğinden açılır.'}
+      </span>
+
+      {s.inputMode === 'ptt' && (
+        <div className="mt-3 flex flex-col gap-1.5">
+          <Overline>Bas-konuş tuşu</Overline>
+          <div className="flex items-center gap-2">
+            <div
+              role="status"
+              aria-live="polite"
+              className={cn(
+                'flex h-10 min-w-0 flex-1 items-center rounded-md border bg-input px-3 text-[14px] leading-5',
+                capturing
+                  ? 'border-brand text-text-muted shadow-[0_0_0_2px_hsl(var(--brand-soft))]'
+                  : 'border-border-strong text-header'
+              )}
+            >
+              {capturing ? (
+                'Bir tuşa ya da fare yan tuşuna bas… (Esc: vazgeç)'
+              ) : s.pttKey ? (
+                <kbd className="rounded-xs border border-border-strong bg-floating px-2 py-0.5 font-mono text-[13px] font-medium shadow-sm">
+                  {s.pttKey.label}
+                </kbd>
+              ) : (
+                <span className="text-text-muted">Tuş atanmadı</span>
+              )}
+            </div>
+            {capturing ? (
+              <Button type="button" variant="ghost" onClick={cancel}>
+                Vazgeç
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" onClick={() => void assign()}>
+                {s.pttKey ? 'Değiştir' : 'Tuş Ata'}
+              </Button>
+            )}
+          </div>
+          {!s.pttKey && !capturing ? (
+            <span className="flex items-center gap-1 text-meta text-idle">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> Tuş atamadan bas-konuşta sesin gitmez.
+            </span>
+          ) : (
+            <span className="text-meta text-text-muted">
+              Yönetici olarak açılmış oyunların içindeyken tuş algılanmayabilir.
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function VoiceSettingsModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const s = useAudioSettings()
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
@@ -94,7 +233,12 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
 
   useEffect(() => {
     preview?.setGate(s.gateAuto, s.gateDb)
-  }, [preview, s.gateAuto, s.gateDb])
+    preview?.setBypass(s.inputMode === 'ptt')
+  }, [preview, s.gateAuto, s.gateDb, s.inputMode])
+
+  // Bas-konuşta ses kapısı yok: çubuk yalnızca sesin geldiğini gösterir.
+  const ptt = s.inputMode === 'ptt'
+  const meterActive = ptt ? meter.level > -60 : meter.open
 
   // Ölçer.
   useEffect(() => {
@@ -147,6 +291,8 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
             />
           </div>
 
+          <InputModeSection />
+
           <div className="mt-5 flex items-center justify-between">
             <Overline>Mikrofon testi</Overline>
             <Button
@@ -163,21 +309,25 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
             <div className="relative" role="meter" aria-label="Mikrofon seviyesi" aria-valuemin={METER_MIN_DB} aria-valuemax={0} aria-valuenow={Math.round(meter.level)}>
               <div className="h-2.5 overflow-hidden rounded-pill border border-border bg-input">
                 <div
-                  className={cn('h-full transition-[width] duration-75', meter.open ? 'bg-online' : 'bg-border-strong')}
+                  className={cn('h-full transition-[width] duration-75', meterActive ? 'bg-online' : 'bg-border-strong')}
                   style={{ width: `${toPct(meter.level)}%` }}
                 />
               </div>
-              <div
-                className="absolute -bottom-[3px] -top-[3px] w-0.5 rounded-pill bg-idle"
-                style={{ left: `${toPct(meter.threshold)}%` }}
-                title="Eşik"
-              />
+              {!ptt && (
+                <div
+                  className="absolute -bottom-[3px] -top-[3px] w-0.5 rounded-pill bg-idle"
+                  style={{ left: `${toPct(meter.threshold)}%` }}
+                  title="Eşik"
+                />
+              )}
             </div>
             {testError ? (
               <ErrorBox>{testError}</ErrorBox>
             ) : (
               <span className="text-meta text-text-muted">
-                Konuşmaya başla; çubuk sarı çizgiyi geçtiğinde sesin karşı tarafa gider.
+                {ptt
+                  ? 'Konuşmaya başla; çubuk sesinin mikrofona ulaştığını gösterir. Bas-konuşta ses yalnızca tuş basılıyken gider.'
+                  : 'Konuşmaya başla; çubuk sarı çizgiyi geçtiğinde sesin karşı tarafa gider.'}
               </span>
             )}
             <audio ref={loopback} hidden />
@@ -190,29 +340,31 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
               checked={s.denoise}
               onChange={(denoise) => setAudioSettings({ denoise })}
             />
-            <SwitchRow
-              title="Giriş hassasiyetini otomatik ayarla"
-              desc="Kapatırsan eşiği kendin belirlersin."
-              checked={s.gateAuto}
-              onChange={(gateAuto) => setAudioSettings({ gateAuto })}
-            >
-              {!s.gateAuto && (
-                <div className="flex max-w-[320px] flex-col gap-2">
-                  <input
-                    type="range"
-                    min={METER_MIN_DB}
-                    max={-10}
-                    step={1}
-                    value={s.gateDb}
-                    aria-label="Giriş hassasiyeti"
-                    onChange={(e) => setAudioSettings({ gateDb: Number(e.target.value) })}
-                    className="range"
-                    style={{ ['--fill' as string]: `${((s.gateDb - METER_MIN_DB) / (-10 - METER_MIN_DB)) * 100}%` }}
-                  />
-                  <span className="text-meta text-text-muted">Eşik: {s.gateDb} dB</span>
-                </div>
-              )}
-            </SwitchRow>
+            {!ptt && (
+              <SwitchRow
+                title="Giriş hassasiyetini otomatik ayarla"
+                desc="Kapatırsan eşiği kendin belirlersin."
+                checked={s.gateAuto}
+                onChange={(gateAuto) => setAudioSettings({ gateAuto })}
+              >
+                {!s.gateAuto && (
+                  <div className="flex max-w-[320px] flex-col gap-2">
+                    <input
+                      type="range"
+                      min={METER_MIN_DB}
+                      max={-10}
+                      step={1}
+                      value={s.gateDb}
+                      aria-label="Giriş hassasiyeti"
+                      onChange={(e) => setAudioSettings({ gateDb: Number(e.target.value) })}
+                      className="range"
+                      style={{ ['--fill' as string]: `${((s.gateDb - METER_MIN_DB) / (-10 - METER_MIN_DB)) * 100}%` }}
+                    />
+                    <span className="text-meta text-text-muted">Eşik: {s.gateDb} dB</span>
+                  </div>
+                )}
+              </SwitchRow>
+            )}
             <SwitchRow
               title="Otomatik ses seviyesi"
               desc="Sesini diğer kişilerle aynı seviyeye getirir; cızırtı artarsa kapatmayı dene."
@@ -231,7 +383,16 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
           <Button
             type="button"
             variant="ghost"
-            onClick={() => setAudioSettings({ ...DEFAULT_AUDIO, inputId: s.inputId, outputId: s.outputId })}
+            onClick={() =>
+              // Cihazlar, giriş modu ve bas-konuş tuşu korunur; yalnızca ses işleme sıfırlanır.
+              setAudioSettings({
+                ...DEFAULT_AUDIO,
+                inputId: s.inputId,
+                outputId: s.outputId,
+                inputMode: s.inputMode,
+                pttKey: s.pttKey
+              })
+            }
           >
             <RotateCcw className="h-4 w-4" /> Varsayılanlara dön
           </Button>

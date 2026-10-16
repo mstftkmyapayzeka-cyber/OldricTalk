@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { ErrorBox } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip } from '@/components/ui/tooltip'
+import UserVolumeMenu, { LocalMuteIcon } from './UserVolumeMenu'
 
 // Kişi sayısına göre ızgara: 1 tek karo (≤620px) · 2–4 iki sütun · 5–9 üç sütun · fazlası dört sütun.
 function layout(n: number): { cols: number; avatar: number } {
@@ -37,26 +38,29 @@ function Tile({
   avatar: number
 }): React.JSX.Element {
   return (
-    <div
-      className={cn(
-        'relative grid aspect-video min-h-0 w-full place-items-center overflow-hidden rounded-xl border-2 transition-[border-color,box-shadow] duration-slow',
-        speaking
-          ? 'border-online shadow-[0_0_0_4px_color-mix(in_oklab,hsl(var(--online))_26%,transparent)]'
-          : 'border-transparent'
-      )}
-      style={{ background: `color-mix(in oklab, ${colorFor(m.user_id)} 26%, hsl(var(--sidebar)))` }}
-    >
-      <Avatar src={m.avatar_url} name={m.name} seed={m.user_id} size={avatar} />
-      {/* Karo rengi değişken olduğundan ad etiketi sabit siyah %55 zemin + beyaz metindir. */}
-      <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-24px)] items-center gap-1.5 rounded-pill bg-black/55 px-2 py-[3px] text-meta font-semibold text-white">
-        <span className="truncate">{m.name}</span>
-        {m.deafened ? (
-          <HeadphoneOff className="h-3.5 w-3.5 shrink-0 text-dnd" aria-label="Sağırlaştırılmış" />
-        ) : (
-          m.muted && <MicOff className="h-3.5 w-3.5 shrink-0 text-dnd" aria-label="Sessizde" />
+    <UserVolumeMenu userId={m.user_id} name={m.name}>
+      <div
+        className={cn(
+          'relative grid aspect-video min-h-0 w-full place-items-center overflow-hidden rounded-xl border-2 transition-[border-color,box-shadow] duration-slow',
+          speaking
+            ? 'border-online shadow-[0_0_0_4px_color-mix(in_oklab,hsl(var(--online))_26%,transparent)]'
+            : 'border-transparent'
         )}
+        style={{ background: `color-mix(in oklab, ${colorFor(m.user_id)} 26%, hsl(var(--sidebar)))` }}
+      >
+        <Avatar src={m.avatar_url} name={m.name} seed={m.user_id} size={avatar} />
+        {/* Karo rengi değişken olduğundan ad etiketi sabit siyah %55 zemin + beyaz metindir. */}
+        <div className="absolute bottom-3 left-3 flex max-w-[calc(100%-24px)] items-center gap-1.5 rounded-pill bg-black/55 px-2 py-[3px] text-meta font-semibold text-white">
+          <span className="truncate">{m.name}</span>
+          <LocalMuteIcon userId={m.user_id} />
+          {m.deafened ? (
+            <HeadphoneOff className="h-3.5 w-3.5 shrink-0 text-dnd" aria-label="Sağırlaştırılmış" />
+          ) : (
+            m.muted && <MicOff className="h-3.5 w-3.5 shrink-0 text-dnd" aria-label="Sessizde" />
+          )}
+        </div>
       </div>
-    </div>
+    </UserVolumeMenu>
   )
 }
 

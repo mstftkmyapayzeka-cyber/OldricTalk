@@ -60,6 +60,8 @@ export class MicPipeline {
   private lastLoud = 0
   private gateAuto: boolean
   private gateDb: number
+  /** Bas-konuşta kapı hep açık; sesi tuş (track.enabled) keser. */
+  private bypass: boolean
   private readonly buf: Float32Array<ArrayBuffer>
   private readonly timer: ReturnType<typeof setInterval>
 
@@ -75,6 +77,7 @@ export class MicPipeline {
     this.stream = dest.stream
     this.gateAuto = s.gateAuto
     this.gateDb = s.gateDb
+    this.bypass = s.inputMode === 'ptt'
     this.buf = new Float32Array(analyser.fftSize)
     this.timer = setInterval(() => this.tick(), TICK_MS)
   }
@@ -139,6 +142,10 @@ export class MicPipeline {
     this.gateDb = db
   }
 
+  setBypass(bypass: boolean): void {
+    this.bypass = bypass
+  }
+
   private tick(): void {
     this.analyser.getFloatTimeDomainData(this.buf)
     let sum = 0
@@ -158,7 +165,8 @@ export class MicPipeline {
       this.floorDb = db < this.floorDb ? this.floorDb + (db - this.floorDb) * 0.2 : this.floorDb + 0.02
       this.floorDb = Math.min(-35, Math.max(-95, this.floorDb))
     }
-    this.gate.gain.setTargetAtTime(this.gateOpen ? 1 : 0, this.ctx.currentTime, this.gateOpen ? 0.004 : 0.05)
+    const open = this.bypass || this.gateOpen
+    this.gate.gain.setTargetAtTime(open ? 1 : 0, this.ctx.currentTime, open ? 0.004 : 0.05)
   }
 
   destroy(): void {

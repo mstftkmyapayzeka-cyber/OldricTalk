@@ -16,6 +16,10 @@ export type AudioSettings = {
   agc: boolean
   /** Yankı engelleme. */
   echo: boolean
+  /** Ses etkinliği (konuşunca açılır) ya da bas-konuş (tuş basılıyken açılır). */
+  inputMode: 'voice' | 'ptt'
+  /** Bas-konuş tuşu; label klavye düzenine göre gösterilen ad. */
+  pttKey: { kind: 'key' | 'mouse'; code: number; label: string } | null
 }
 
 const KEY = 'oldrictalk-audio-settings'
@@ -27,7 +31,9 @@ export const DEFAULT_AUDIO: AudioSettings = {
   gateAuto: true,
   gateDb: -50,
   agc: true,
-  echo: true
+  echo: true,
+  inputMode: 'voice',
+  pttKey: null
 }
 
 function load(): AudioSettings {

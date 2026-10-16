@@ -11,6 +11,7 @@ import {
 import { autoUpdater } from 'electron-updater'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { setupPtt, stopPtt } from './ptt'
 
 const APP_ID = 'com.oldric.talk'
 const isDev = !app.isPackaged
@@ -286,6 +287,7 @@ app.whenReady().then(() => {
 
   // Testlerde tepsi yok: pencereyi kapatmak uygulamayı kapatır.
   if (!testProfile) createTray()
+  setupPtt()
   createWindow()
   setupAutoUpdate()
 
@@ -296,6 +298,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true
+  stopPtt()
 })
 
 app.on('window-all-closed', () => {

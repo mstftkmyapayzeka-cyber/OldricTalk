@@ -12,6 +12,7 @@ import { MicPipeline } from './micPipeline'
 import type { Channel, Profile } from './types'
 import { useVoiceRoster, type VoiceMember } from '@/stores/voiceRoster'
 import { useAudioSettings } from '@/stores/audioSettings'
+import { effectiveGain, useUserVolumes } from '@/stores/userVolumes'
 
 type Status = 'idle' | 'connecting' | 'connected'
 
@@ -28,6 +29,8 @@ type VoiceState = {
   speaking: string[]
   /** Ses sunucusuyla bağlantı kalitesi (bağlıyken birkaç saniyede bir güncellenir). */
   quality: VoiceQuality | null
+  /** Bas-konuş tuşu şu an basılı mı (ses gidiyor mu). */
+  pttDown: boolean
 }
 
 export type VoiceQuality = {
@@ -57,7 +60,8 @@ const IDLE = {
   channelName: null,
   serverName: null,
   speaking: [] as string[],
-  quality: null as VoiceQuality | null
+  quality: null as VoiceQuality | null,
+  pttDown: false
 }
 
 export const useVoice = create<VoiceState>(() => ({ ...IDLE, error: null, ...loadPrefs() }))
@@ -76,7 +80,12 @@ type Remote = {
   trackName: string
   mid: string | null
   track: MediaStreamTrack | null
+  /** Hoparlöre çalan öğe (kişi başı ses düzeyinden geçmiş ses). */
   audio: HTMLAudioElement | null
+  /** Uzak sesi Web Audio'ya akıtan sessiz öğe (Chromium bunu ister). */
+  pump: HTMLAudioElement | null
+  source: MediaStreamAudioSourceNode | null
+  gain: GainNode | null
 }
 /** anahtar `${sessionId}:${trackName}` */
 const remotes = new Map<string, Remote>()
@@ -144,7 +153,17 @@ async function reconcile(): Promise<void> {
   const missing = [...wanted.entries()].filter(([key]) => !remotes.has(key))
   if (missing.length === 0) return
   for (const [key, w] of missing) {
-    remotes.set(key, { key, userId: w.userId, trackName: w.trackName, mid: null, track: null, audio: null })
+    remotes.set(key, {
+      key,
+      userId: w.userId,
+      trackName: w.trackName,
+      mid: null,
+      track: null,
+      audio: null,
+      pump: null,
+      source: null,
+      gain: null
+    })
   }
   try {
     const { pulled, failed } = await sess.pull(missing.map(([, w]) => w))
@@ -165,28 +184,55 @@ async function reconcile(): Promise<void> {
   }
 }
 
+// Uzak ses: akış → kişi başı kazanç (%0–%200) → hoparlör öğesi. Konuşma algılama kazançtan
+// önceki akışı ölçer; kişiyi kendine kısmak onun konuşma halkasını etkilemez.
 function attachRemote(r: Remote, track: MediaStreamTrack): void {
   if (remotes.get(r.key) !== r) return
   r.track = track
   if (track.kind !== 'audio') return
+  const stream = new MediaStream([track])
+  // Chromium uzak WebRTC sesini Web Audio'ya ancak bir medya öğesine bağlıyken verir; bu öğe sessiz çalar.
+  const pump = new Audio()
+  pump.srcObject = stream
+  pump.muted = true
+  void pump.play().catch(() => undefined)
+
+  const ctx = audioContext()
+  const source = ctx.createMediaStreamSource(stream)
+  const gain = ctx.createGain()
+  gain.gain.value = effectiveGain(r.userId)
+  const dest = ctx.createMediaStreamDestination()
+  source.connect(gain).connect(dest)
+
   const el = new Audio()
   el.autoplay = true
-  el.srcObject = new MediaStream([track])
+  el.srcObject = dest.stream
   el.muted = useVoice.getState().deafened
   setOutputDevice(el)
   void el.play().catch(() => undefined)
-  r.audio = el
-  watchLevel(r.userId, el.srcObject as MediaStream)
+  Object.assign(r, { audio: el, pump, source, gain })
+  watchLevel(r.userId, stream)
 }
 
 function dropRemote(r: Remote): void {
   remotes.delete(r.key)
-  if (r.audio) {
-    r.audio.srcObject = null
-    r.audio.remove()
+  r.source?.disconnect()
+  r.gain?.disconnect()
+  for (const el of [r.audio, r.pump]) {
+    if (!el) continue
+    el.srcObject = null
+    el.remove()
   }
   unwatchLevel(r.userId)
 }
+
+// Kişi başı ses düzeyi değişince çalan sese anında uygulanır.
+useUserVolumes.subscribe(() => {
+  if (!audioCtx) return
+  for (const r of remotes.values()) {
+    r.gain?.gain.setTargetAtTime(effectiveGain(r.userId), audioCtx.currentTime, 0.02)
+  }
+})
 
 // ---------------------------------------------------------------- konuşan algılama
 const LEVEL_THRESHOLD = 0.018
@@ -194,11 +240,16 @@ let audioCtx: AudioContext | null = null
 const meters = new Map<string, { source: MediaStreamAudioSourceNode; analyser: AnalyserNode }>()
 let meterTimer: ReturnType<typeof setInterval> | null = null
 
+function audioContext(): AudioContext {
+  audioCtx ??= new AudioContext()
+  if (audioCtx.state === 'suspended') void audioCtx.resume()
+  return audioCtx
+}
+
 function watchLevel(userId: string, stream: MediaStream): void {
   unwatchLevel(userId)
-  audioCtx ??= new AudioContext()
-  const source = audioCtx.createMediaStreamSource(stream)
-  const analyser = audioCtx.createAnalyser()
+  const source = audioContext().createMediaStreamSource(stream)
+  const analyser = audioContext().createAnalyser()
   analyser.fftSize = 512
   source.connect(analyser)
   meters.set(userId, { source, analyser })
@@ -251,6 +302,53 @@ function stopQuality(): void {
 }
 
 // ---------------------------------------------------------------- mikrofon
+/** Ses gitmeli mi: susturulmamış ve (ses etkinliği modunda ya da bas-konuş tuşu basılı). */
+function micShouldSend(): boolean {
+  const s = useVoice.getState()
+  if (s.muted) return false
+  return useAudioSettings.getState().inputMode !== 'ptt' || s.pttDown
+}
+
+function applyMic(): void {
+  if (mic) mic.pipeline.track.enabled = micShouldSend()
+}
+
+// ---------------------------------------------------------------- bas-konuş
+/** Tuş bırakıldıktan sonra sesin kesilmesine kadar geçen süre (kelime sonu kırpılmasın). */
+const PTT_RELEASE_MS = 150
+let pttRelease: ReturnType<typeof setTimeout> | null = null
+
+function setPttDown(down: boolean, immediate = false): void {
+  if (pttRelease) clearTimeout(pttRelease)
+  pttRelease = null
+  const update = (): void => {
+    if (useVoice.getState().pttDown === down) return
+    useVoice.setState({ pttDown: down })
+    applyMic()
+  }
+  if (down || immediate) update()
+  else pttRelease = setTimeout(update, PTT_RELEASE_MS)
+}
+
+/** Ana süreçteki klavye kancası yalnızca bas-konuş açıkken ve sesteyken çalışır. */
+function syncPtt(): void {
+  const a = useAudioSettings.getState()
+  const enabled = a.inputMode === 'ptt' && !!a.pttKey && useVoice.getState().status !== 'idle'
+  window.oldric?.setPtt({
+    enabled,
+    binding: a.pttKey ? { kind: a.pttKey.kind, code: a.pttKey.code } : null
+  })
+  if (!enabled) setPttDown(false, true)
+}
+
+window.oldric?.onPtt((down) => setPttDown(down))
+window.oldric?.onPttError(() =>
+  useVoice.setState({ error: 'Bas-konuş tuşu dinlenemedi; ses etkinliği moduna geçebilirsin.' })
+)
+useVoice.subscribe((s, prev) => {
+  if (s.status !== prev.status) syncPtt()
+})
+
 /** Ayarlara göre işlenmiş mikrofon; gürültü engelleme yüklenemezse onsuz devam eder. */
 async function createPipeline(): Promise<MicPipeline> {
   const s = useAudioSettings.getState()
@@ -270,7 +368,7 @@ async function startMic(): Promise<boolean> {
   try {
     if (!session) throw new Error('Bağlı değil.')
     pipeline = await createPipeline()
-    pipeline.track.enabled = !useVoice.getState().muted
+    pipeline.track.enabled = micShouldSend()
     mic = { pipeline, tx: await session.publish(pipeline.track, 'mic') }
     if (me) watchLevel(me.id, pipeline.stream)
     return true
@@ -289,7 +387,7 @@ async function restartMic(): Promise<void> {
   try {
     const next = await createPipeline()
     if (mine !== micRestart || mic !== current) return next.destroy()
-    next.track.enabled = !useVoice.getState().muted
+    next.track.enabled = micShouldSend()
     await current.tx.sender.replaceTrack(next.track)
     mic = { pipeline: next, tx: current.tx }
     if (me) watchLevel(me.id, next.stream)
@@ -309,6 +407,11 @@ useAudioSettings.subscribe((s, prev) => {
     for (const r of remotes.values()) {
       if (r.audio) void r.audio.setSinkId(s.outputId ?? '').catch(() => undefined)
     }
+  }
+  if (s.inputMode !== prev.inputMode || s.pttKey !== prev.pttKey) {
+    syncPtt()
+    mic?.pipeline.setBypass(s.inputMode === 'ptt')
+    applyMic()
   }
   if (!mic) return
   if (s.inputId !== prev.inputId || s.denoise !== prev.denoise || s.agc !== prev.agc || s.echo !== prev.echo) {
@@ -347,11 +450,10 @@ export async function joinVoice(channel: Channel, serverName: string): Promise<v
       }
     })
 
-    const { muted, deafened } = useVoice.getState()
     const micOk = await startMic()
     if (mine !== attempt) return
     if (!micOk) useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi; sessiz katıldın.' })
-    else if (deafened || muted) mic!.pipeline.track.enabled = false
+    else applyMic()
 
     // Mikrofon yoksa ilk bağlantı ilk çekmeyle kurulur.
     if (micOk) await sess.waitConnected()
@@ -396,7 +498,7 @@ export async function toggleMute(): Promise<void> {
   savePrefs()
   playCue(muted ? 'mute' : 'unmute')
   if (s.status === 'connected') {
-    if (mic) mic.pipeline.track.enabled = !muted
+    if (mic) applyMic()
     else if (!muted && !(await startMic())) {
       useVoice.setState({ muted: true, error: 'Mikrofona erişilemedi.' })
     }
@@ -417,7 +519,7 @@ export async function toggleDeafen(): Promise<void> {
   savePrefs()
   playCue(deafened ? 'mute' : 'unmute')
   setDeafenedAudio(deafened)
-  if (mic) mic.pipeline.track.enabled = !muted
+  applyMic()
   publishPresence()
 }
 
