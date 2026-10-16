@@ -330,23 +330,31 @@ function setPttDown(down: boolean, immediate = false): void {
   else pttRelease = setTimeout(update, PTT_RELEASE_MS)
 }
 
-/** Ana süreçteki klavye kancası yalnızca bas-konuş açıkken ve sesteyken çalışır. */
-function syncPtt(): void {
+/**
+ * Ses kısayolları (bas-konuş, mikrofon aç/kapat) yalnızca bir ses kanalındayken dinlenir;
+ * ses yokken ana süreçteki klavye kancası durur.
+ */
+function syncHotkeys(): void {
   const a = useAudioSettings.getState()
-  const enabled = a.inputMode === 'ptt' && !!a.pttKey && useVoice.getState().status !== 'idle'
-  window.oldric?.setPtt({
-    enabled,
-    binding: a.pttKey ? { kind: a.pttKey.kind, code: a.pttKey.code } : null
+  const inVoice = useVoice.getState().status !== 'idle'
+  const bind = (k: typeof a.pttKey): { kind: 'key' | 'mouse'; code: number } | null =>
+    k ? { kind: k.kind, code: k.code } : null
+  window.oldric?.setHotkeys({
+    ptt: inVoice && a.inputMode === 'ptt' ? bind(a.pttKey) : null,
+    mute: inVoice ? bind(a.muteKey) : null
   })
-  if (!enabled) setPttDown(false, true)
+  if (!inVoice || a.inputMode !== 'ptt' || !a.pttKey) setPttDown(false, true)
 }
 
-window.oldric?.onPtt((down) => setPttDown(down))
-window.oldric?.onPttError(() =>
-  useVoice.setState({ error: 'Bas-konuş tuşu dinlenemedi; ses etkinliği moduna geçebilirsin.' })
+window.oldric?.onHotkey((action, down) => {
+  if (action === 'ptt') setPttDown(down)
+  else if (action === 'mute' && down) void toggleMute()
+})
+window.oldric?.onHotkeyError(() =>
+  useVoice.setState({ error: 'Kısayol tuşları dinlenemedi; mikrofonu panelden açıp kapatabilirsin.' })
 )
 useVoice.subscribe((s, prev) => {
-  if (s.status !== prev.status) syncPtt()
+  if (s.status !== prev.status) syncHotkeys()
 })
 
 /** Ayarlara göre işlenmiş mikrofon; gürültü engelleme yüklenemezse onsuz devam eder. */
@@ -408,8 +416,9 @@ useAudioSettings.subscribe((s, prev) => {
       if (r.audio) void r.audio.setSinkId(s.outputId ?? '').catch(() => undefined)
     }
   }
+  if (s.muteKey !== prev.muteKey) syncHotkeys()
   if (s.inputMode !== prev.inputMode || s.pttKey !== prev.pttKey) {
-    syncPtt()
+    syncHotkeys()
     mic?.pipeline.setBypass(s.inputMode === 'ptt')
     applyMic()
   }

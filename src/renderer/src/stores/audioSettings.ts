@@ -19,8 +19,12 @@ export type AudioSettings = {
   /** Ses etkinliği (konuşunca açılır) ya da bas-konuş (tuş basılıyken açılır). */
   inputMode: 'voice' | 'ptt'
   /** Bas-konuş tuşu; label klavye düzenine göre gösterilen ad. */
-  pttKey: { kind: 'key' | 'mouse'; code: number; label: string } | null
+  pttKey: HotkeyBinding | null
+  /** Mikrofonu aç/kapat tuşu (sesteyken, uygulama arka plandayken de). */
+  muteKey: HotkeyBinding | null
 }
+
+export type HotkeyBinding = { kind: 'key' | 'mouse'; code: number; label: string }
 
 const KEY = 'oldrictalk-audio-settings'
 
@@ -33,7 +37,8 @@ export const DEFAULT_AUDIO: AudioSettings = {
   agc: true,
   echo: true,
   inputMode: 'voice',
-  pttKey: null
+  pttKey: null,
+  muteKey: null
 }
 
 function load(): AudioSettings {

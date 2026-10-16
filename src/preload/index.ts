@@ -8,26 +8,27 @@ const api = {
   flashFrame: (): void => ipcRenderer.send('app:flash'),
   focusWindow: (): void => ipcRenderer.send('app:focus'),
   setTheme: (theme: 'light' | 'dark'): void => ipcRenderer.send('app:theme', theme),
-  /** Bas-konuş: ana süreçteki klavye kancasını açar/kapatır. */
-  setPtt: (cfg: { enabled: boolean; binding: PttBinding | null }): void => ipcRenderer.send('ptt:set', cfg),
+  /** Ses kısayolları (bas-konuş, mikrofon aç/kapat): null olan dinlenmez; hepsi null → kanca durur. */
+  setHotkeys: (cfg: Record<HotkeyAction, HotkeyBinding | null>): void => ipcRenderer.send('hotkeys:set', cfg),
   /** Sıradaki tuşu ya da fare yan tuşunu yakalar; Esc → null. */
-  capturePtt: (): Promise<PttCaptured | null> => ipcRenderer.invoke('ptt:capture'),
-  cancelPttCapture: (): void => ipcRenderer.send('ptt:cancel-capture'),
-  /** Tuş basıldı/bırakıldı; dinlemeyi bırakmak için dönen işlevi çağır. */
-  onPtt: (cb: (down: boolean) => void): (() => void) => {
-    const listener = (_e: Electron.IpcRendererEvent, down: boolean): void => cb(down)
-    ipcRenderer.on('ptt:state', listener)
-    return () => ipcRenderer.removeListener('ptt:state', listener)
+  captureHotkey: (): Promise<HotkeyCaptured | null> => ipcRenderer.invoke('hotkeys:capture'),
+  cancelHotkeyCapture: (): void => ipcRenderer.send('hotkeys:cancel-capture'),
+  /** Kısayol basıldı/bırakıldı; dinlemeyi bırakmak için dönen işlevi çağır. */
+  onHotkey: (cb: (action: HotkeyAction, down: boolean) => void): (() => void) => {
+    const listener = (_e: Electron.IpcRendererEvent, action: HotkeyAction, down: boolean): void => cb(action, down)
+    ipcRenderer.on('hotkey', listener)
+    return () => ipcRenderer.removeListener('hotkey', listener)
   },
-  onPttError: (cb: () => void): (() => void) => {
+  onHotkeyError: (cb: () => void): (() => void) => {
     const listener = (): void => cb()
-    ipcRenderer.on('ptt:error', listener)
-    return () => ipcRenderer.removeListener('ptt:error', listener)
+    ipcRenderer.on('hotkey:error', listener)
+    return () => ipcRenderer.removeListener('hotkey:error', listener)
   }
 }
 
-export type PttBinding = { kind: 'key' | 'mouse'; code: number }
-export type PttCaptured = PttBinding & { label: string }
+export type HotkeyAction = 'ptt' | 'mute'
+export type HotkeyBinding = { kind: 'key' | 'mouse'; code: number }
+export type HotkeyCaptured = HotkeyBinding & { label: string }
 
 contextBridge.exposeInMainWorld('oldric', api)
 

@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Headphones, RotateCcw, TriangleAlert } from 'lucide-react'
+import { CircleAlert, Headphones, RotateCcw, TriangleAlert } from 'lucide-react'
 import { MicPipeline } from '@/lib/micPipeline'
 import { cn } from '@/lib/utils'
-import { DEFAULT_AUDIO, setAudioSettings, useAudioSettings } from '@/stores/audioSettings'
+import {
+  DEFAULT_AUDIO,
+  setAudioSettings,
+  useAudioSettings,
+  type HotkeyBinding
+} from '@/stores/audioSettings'
 import { Button } from '@/components/ui/button'
 import { ErrorBox, Overline } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -72,12 +77,29 @@ function keyLabelFromEvent(e: KeyboardEvent): string | null {
   return label === 'Escape' || label === 'Unidentified' ? null : label
 }
 
-/** Giriş modu: ses etkinliği ya da bas-konuş (+ tuş atama). */
-function InputModeSection(): React.JSX.Element {
-  const s = useAudioSettings()
+/**
+ * Kısayol tuşu atama kutusu: tuşu gösterir; "Tuş Ata" sıradaki tuşu ya da fare yan tuşunu
+ * yakalar (Esc vazgeçer). Aynı tuş iki kısayola birden atanamaz.
+ */
+function HotkeyField({
+  label,
+  value,
+  other,
+  onChange,
+  emptyHint,
+  hint
+}: {
+  label: string
+  value: HotkeyBinding | null
+  /** Diğer kısayolun tuşu (çakışmayı önlemek için) ve adı. */
+  other: { binding: HotkeyBinding | null; name: string }
+  onChange: (binding: HotkeyBinding | null) => void
+  emptyHint: React.ReactNode
+  hint: string
+}): React.JSX.Element {
   const [capturing, setCapturing] = useState(false)
+  const [conflict, setConflict] = useState<string | null>(null)
   const lastLabel = useRef<string | null>(null)
-  const supported = !!window.oldric?.capturePtt
 
   // Tuş atanırken basılan tuş pencerede başka bir şey yapmasın (Esc pencereyi kapatmasın).
   useEffect(() => {
@@ -91,25 +113,100 @@ function InputModeSection(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [capturing])
 
-  useEffect(() => () => window.oldric?.cancelPttCapture(), [])
+  // Pencere tuş beklerken kapanırsa yakalama iptal edilir.
+  const capturingRef = useRef(false)
+  capturingRef.current = capturing
+  useEffect(
+    () => () => {
+      if (capturingRef.current) window.oldric?.cancelHotkeyCapture()
+    },
+    []
+  )
 
   async function assign(): Promise<void> {
     if (!window.oldric) return
     lastLabel.current = null
+    setConflict(null)
     setCapturing(true)
-    const result = await window.oldric.capturePtt()
+    const result = await window.oldric.captureHotkey()
     // Pencere odaktaysa tuş adını klavye düzeninden al (ana süreçten gelen ad yedek).
     await new Promise((r) => setTimeout(r, 60))
     setCapturing(false)
     if (!result) return
-    const label = result.kind === 'key' ? (lastLabel.current ?? result.label) : result.label
-    setAudioSettings({ pttKey: { kind: result.kind, code: result.code, label }, inputMode: 'ptt' })
+    const o = other.binding
+    if (o && o.kind === result.kind && o.code === result.code) {
+      setConflict(`Bu tuş zaten ${other.name} için atanmış.`)
+      return
+    }
+    const name = result.kind === 'key' ? (lastLabel.current ?? result.label) : result.label
+    onChange({ kind: result.kind, code: result.code, label: name })
   }
 
   function cancel(): void {
-    window.oldric?.cancelPttCapture()
+    window.oldric?.cancelHotkeyCapture()
     setCapturing(false)
   }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Overline>{label}</Overline>
+      <div className="flex items-center gap-2">
+        <div
+          role="status"
+          aria-live="polite"
+          className={cn(
+            'flex h-10 min-w-0 flex-1 items-center rounded-md border bg-input px-3 text-[14px] leading-5',
+            capturing
+              ? 'border-brand text-text-muted shadow-[0_0_0_2px_hsl(var(--brand-soft))]'
+              : 'border-border-strong text-header'
+          )}
+        >
+          {capturing ? (
+            <span className="truncate">Bir tuşa ya da fare yan tuşuna bas… (Esc: vazgeç)</span>
+          ) : value ? (
+            <kbd className="rounded-xs border border-border-strong bg-floating px-2 py-0.5 font-mono text-[13px] font-medium shadow-sm">
+              {value.label}
+            </kbd>
+          ) : (
+            <span className="text-text-muted">Tuş atanmadı</span>
+          )}
+        </div>
+        {capturing ? (
+          <Button type="button" variant="ghost" onClick={cancel}>
+            Vazgeç
+          </Button>
+        ) : (
+          <>
+            {value && (
+              <Button type="button" variant="ghost" onClick={() => onChange(null)}>
+                Kaldır
+              </Button>
+            )}
+            <Button type="button" variant="outline" onClick={() => void assign()} disabled={!window.oldric}>
+              {value ? 'Değiştir' : 'Tuş Ata'}
+            </Button>
+          </>
+        )}
+      </div>
+      {conflict ? (
+        <span className="flex items-center gap-1 text-meta text-dnd">
+          <CircleAlert className="h-3.5 w-3.5 shrink-0" /> {conflict}
+        </span>
+      ) : !value && !capturing ? (
+        emptyHint
+      ) : (
+        <span className="text-meta text-text-muted">{hint}</span>
+      )}
+    </div>
+  )
+}
+
+const ELEVATED_HINT = 'Yönetici olarak açılmış oyunların içindeyken tuş algılanmayabilir.'
+
+/** Giriş modu: ses etkinliği ya da bas-konuş (+ tuş); her iki modda mikrofon aç/kapat tuşu. */
+function InputModeSection(): React.JSX.Element {
+  const s = useAudioSettings()
+  const supported = !!window.oldric?.captureHotkey
 
   const modes = [
     { id: 'voice' as const, label: 'Ses Etkinliği' },
@@ -117,77 +214,61 @@ function InputModeSection(): React.JSX.Element {
   ]
 
   return (
-    <div className="mt-5 flex flex-col gap-1.5">
-      <Overline>Giriş modu</Overline>
-      <div role="radiogroup" aria-label="Giriş modu" className="flex items-center gap-1">
-        {modes.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            role="radio"
-            aria-checked={s.inputMode === m.id}
-            disabled={m.id === 'ptt' && !supported}
-            onClick={() => setAudioSettings({ inputMode: m.id })}
-            className={cn(
-              'inline-flex h-7 items-center rounded-sm px-3 text-label font-semibold transition-colors duration-fast disabled:opacity-45',
-              s.inputMode === m.id ? 'bg-selected text-header' : 'text-text-muted hover:bg-hover hover:text-text'
-            )}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-      <span className="text-meta text-text-muted">
-        {s.inputMode === 'ptt'
-          ? 'Ses yalnızca tuş basılıyken gider; uygulama arka plandayken de çalışır.'
-          : 'Konuştuğunda mikrofon kendiliğinden açılır.'}
-      </span>
-
-      {s.inputMode === 'ptt' && (
-        <div className="mt-3 flex flex-col gap-1.5">
-          <Overline>Bas-konuş tuşu</Overline>
-          <div className="flex items-center gap-2">
-            <div
-              role="status"
-              aria-live="polite"
+    <div className="mt-5 flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Overline>Giriş modu</Overline>
+        <div role="radiogroup" aria-label="Giriş modu" className="flex items-center gap-1">
+          {modes.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              role="radio"
+              aria-checked={s.inputMode === m.id}
+              disabled={m.id === 'ptt' && !supported}
+              onClick={() => setAudioSettings({ inputMode: m.id })}
               className={cn(
-                'flex h-10 min-w-0 flex-1 items-center rounded-md border bg-input px-3 text-[14px] leading-5',
-                capturing
-                  ? 'border-brand text-text-muted shadow-[0_0_0_2px_hsl(var(--brand-soft))]'
-                  : 'border-border-strong text-header'
+                'inline-flex h-7 items-center rounded-sm px-3 text-label font-semibold transition-colors duration-fast disabled:opacity-45',
+                s.inputMode === m.id ? 'bg-selected text-header' : 'text-text-muted hover:bg-hover hover:text-text'
               )}
             >
-              {capturing ? (
-                'Bir tuşa ya da fare yan tuşuna bas… (Esc: vazgeç)'
-              ) : s.pttKey ? (
-                <kbd className="rounded-xs border border-border-strong bg-floating px-2 py-0.5 font-mono text-[13px] font-medium shadow-sm">
-                  {s.pttKey.label}
-                </kbd>
-              ) : (
-                <span className="text-text-muted">Tuş atanmadı</span>
-              )}
-            </div>
-            {capturing ? (
-              <Button type="button" variant="ghost" onClick={cancel}>
-                Vazgeç
-              </Button>
-            ) : (
-              <Button type="button" variant="outline" onClick={() => void assign()}>
-                {s.pttKey ? 'Değiştir' : 'Tuş Ata'}
-              </Button>
-            )}
-          </div>
-          {!s.pttKey && !capturing ? (
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-meta text-text-muted">
+          {s.inputMode === 'ptt'
+            ? 'Ses yalnızca tuş basılıyken gider; uygulama arka plandayken de çalışır.'
+            : 'Konuştuğunda mikrofon kendiliğinden açılır.'}
+        </span>
+      </div>
+
+      {s.inputMode === 'ptt' && (
+        <HotkeyField
+          label="Bas-konuş tuşu"
+          value={s.pttKey}
+          other={{ binding: s.muteKey, name: 'mikrofonu aç/kapat' }}
+          onChange={(pttKey) => setAudioSettings({ pttKey })}
+          hint={ELEVATED_HINT}
+          emptyHint={
             <span className="flex items-center gap-1 text-meta text-idle">
               <TriangleAlert className="h-3.5 w-3.5 shrink-0" /> Tuş atamadan bas-konuşta sesin gitmez.
             </span>
-          ) : (
-            <span className="text-meta text-text-muted">
-              Yönetici olarak açılmış oyunların içindeyken tuş algılanmayabilir.
-            </span>
-          )}
-        </div>
+          }
+        />
       )}
+
+      <HotkeyField
+        label="Mikrofonu aç/kapat tuşu"
+        value={s.muteKey}
+        other={{ binding: s.pttKey, name: 'bas-konuş' }}
+        onChange={(muteKey) => setAudioSettings({ muteKey })}
+        hint={`Ses kanalındayken bu tuşa her basışta mikrofonun kapanır ya da açılır. ${ELEVATED_HINT}`}
+        emptyHint={
+          <span className="text-meta text-text-muted">
+            İsteğe bağlı. Atarsan ses kanalındayken mikrofonunu oyundan çıkmadan kapatıp açabilirsin.
+          </span>
+        }
+      />
     </div>
   )
 }
@@ -390,7 +471,8 @@ export default function VoiceSettingsModal({ onClose }: { onClose: () => void })
                 inputId: s.inputId,
                 outputId: s.outputId,
                 inputMode: s.inputMode,
-                pttKey: s.pttKey
+                pttKey: s.pttKey,
+                muteKey: s.muteKey
               })
             }
           >

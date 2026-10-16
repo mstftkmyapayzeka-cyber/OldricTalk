@@ -9,6 +9,7 @@ import { displayStatus, STATUS_LABEL } from '@/lib/presence'
 import type { Profile, UserStatus } from '@/lib/types'
 import { qk, useMyProfile } from '@/hooks/queries'
 import { useModal } from '@/stores/modal'
+import { useAudioSettings } from '@/stores/audioSettings'
 import { Avatar, StatusDot } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -25,17 +26,19 @@ const STATUSES: UserStatus[] = ['online', 'idle', 'dnd', 'invisible']
 // Panel düğmeleri 28px; kapalı mikrofon/kulaklık dnd renk + üzerine çizgi.
 function PanelButton({
   label,
+  sub,
   off,
   onClick,
   children
 }: {
   label: string
+  sub?: string
   off?: boolean
   onClick: () => void
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <Tooltip label={label}>
+    <Tooltip label={label} sub={sub}>
       <button
         onClick={onClick}
         aria-label={label}
@@ -56,6 +59,7 @@ export default function UserPanel(): React.JSX.Element | null {
   const qc = useQueryClient()
   const open = useModal((s) => s.open)
   const voice = useVoice()
+  const muteKey = useAudioSettings((s) => s.muteKey)
   if (!me) return null
 
   async function setStatus(status: UserStatus): Promise<void> {
@@ -119,6 +123,7 @@ export default function UserPanel(): React.JSX.Element | null {
         </DropdownMenu>
         <PanelButton
           label={voice.muted ? 'Mikrofonu Aç' : 'Sessize Al'}
+          sub={muteKey ? `Kısayol: ${muteKey.label}` : undefined}
           off={voice.muted}
           onClick={() => void toggleMute()}
         >
